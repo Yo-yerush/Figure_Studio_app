@@ -192,6 +192,12 @@ function canvasPoint(event) {
   return point.matrixTransform(els.svg.getScreenCTM().inverse());
 }
 
+function clientPointToCanvas(x, y) {
+  const matrix = els.svg.getScreenCTM();
+  if (!matrix) return { x, y };
+  return svgPoint(x, y).matrixTransform(matrix.inverse());
+}
+
 function isLayerHidden(el) {
   return Boolean(el?.closest?.('[data-hidden="true"]'));
 }
@@ -809,14 +815,13 @@ function hasSelectedAncestor(el, selected) {
 
 function elementScreenBox(el) {
   try {
-    const box = el.getBBox();
-    const matrix = el.getCTM();
-    if (!matrix) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect || rect.width < 0 || rect.height < 0) return null;
     return pointsToBox([
-      svgPoint(box.x, box.y).matrixTransform(matrix),
-      svgPoint(box.x + box.width, box.y).matrixTransform(matrix),
-      svgPoint(box.x, box.y + box.height).matrixTransform(matrix),
-      svgPoint(box.x + box.width, box.y + box.height).matrixTransform(matrix)
+      clientPointToCanvas(rect.left, rect.top),
+      clientPointToCanvas(rect.right, rect.top),
+      clientPointToCanvas(rect.left, rect.bottom),
+      clientPointToCanvas(rect.right, rect.bottom)
     ]);
   } catch (error) {
     return null;
