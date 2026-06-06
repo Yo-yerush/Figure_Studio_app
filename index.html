@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Figure Studio</title>
-  <link rel="stylesheet" href="src/styles.css?v=20260605_34">
+  <link rel="stylesheet" href="src/styles.css?v=20260606_15">
 </head>
 <body>
   <div class="app-shell">
@@ -38,9 +38,10 @@
           <option value="svg">SVG</option>
           <option value="png">PNG</option>
           <option value="jpeg">JPEG</option>
+          <option value="tiff">TIFF</option>
           <option value="pdf">PDF</option>
         </select>
-        <button id="exportBtn" type="button" class="button download-button">Download</button>
+        <button id="exportBtn" type="button" class="button download-button">Export</button>
         </div>
       </div>
     </header>
@@ -165,6 +166,50 @@
           </div>
           <div class="action-block">
             <div class="action-title"> </div>
+            <div class="action-title">OCR text recovery</div>
+            <div class="panel-actions">
+              <button id="ocrRecognizeBtn" type="button">Recognize text</button>
+            </div>
+            <div id="ocrPanel" class="ocr-panel" hidden>
+              <div id="ocrStatus" class="ocr-status">Select path-shaped text, then run OCR.</div>
+              <label class="field full">
+                Recognized text
+                <textarea id="ocrText" rows="3" spellcheck="false"></textarea>
+              </label>
+              <div class="ocr-grid">
+                <label class="field full">
+                  Size
+                  <input id="ocrFontSize" type="number" min="4" max="160" step="1" value="14">
+                </label>
+                <label class="field full">
+                  Rotate
+                  <input id="ocrRotation" type="number" min="-180" max="180" step="1" value="0">
+                </label>
+              </div>
+              <label class="field full">
+                Font
+                <select id="ocrFontFamily" class="select"></select>
+              </label>
+              <label class="field full">
+                Style
+                <select id="ocrFontStyle" class="select">
+                  <option value="normal">Regular</option>
+                  <option value="bold">Bold</option>
+                  <option value="italic">Italic</option>
+                </select>
+              </label>
+              <label class="check-row compact-check">
+                <input id="ocrReplaceOriginal" type="checkbox" checked>
+                Replace selected shapes
+              </label>
+              <div class="panel-actions">
+                <button id="ocrInsertBtn" type="button">Insert text</button>
+                <button id="ocrCancelBtn" type="button">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <div class="action-block">
+            <div class="action-title"> </div>
             <div class="action-title">Select same</div>
             <div class="panel-actions compact-actions">
               <button id="selectSameFillBtn" type="button">Fill</button>
@@ -236,8 +281,8 @@
           </label>
           <label class="field fluid">
             <span>DPI</span>
-            <input id="exportDpi" type="range" min="72" max="600" step="1" value="300">
-            <input id="exportDpiNumber" class="fluid-number" type="number" min="72" max="600" step="10" value="300" aria-label="Export DPI">
+            <input id="exportDpi" type="range" min="72" max="1200" step="1" value="300">
+            <input id="exportDpiNumber" class="fluid-number" type="number" min="72" max="1200" step="10" value="300" aria-label="Export DPI">
           </label>
         </section>
       </aside>
@@ -249,6 +294,6 @@
     </footer>
   </div>
 
-  <script src="src/app.js?v=20260605_34"></script>
+  <script src="src/app.js?v=20260606_15"></script>
 </body>
 </html>

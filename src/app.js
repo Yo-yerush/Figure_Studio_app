@@ -17,6 +17,9 @@ const state = {
   panelResize: null,
   resizeDrag: null,
   transformEdit: null,
+  ocrWorkerPromise: null,
+  ocrBusy: false,
+  ocrResultBox: null,
   background: '#ffffff',
   transparentBackground: false,
   textMode: false,
@@ -95,6 +98,17 @@ const els = {
   backBtn: document.getElementById('backBtn'),
   groupBtn: document.getElementById('groupBtn'),
   ungroupBtn: document.getElementById('ungroupBtn'),
+  ocrRecognizeBtn: document.getElementById('ocrRecognizeBtn'),
+  ocrPanel: document.getElementById('ocrPanel'),
+  ocrStatus: document.getElementById('ocrStatus'),
+  ocrText: document.getElementById('ocrText'),
+  ocrFontSize: document.getElementById('ocrFontSize'),
+  ocrRotation: document.getElementById('ocrRotation'),
+  ocrFontFamily: document.getElementById('ocrFontFamily'),
+  ocrFontStyle: document.getElementById('ocrFontStyle'),
+  ocrReplaceOriginal: document.getElementById('ocrReplaceOriginal'),
+  ocrInsertBtn: document.getElementById('ocrInsertBtn'),
+  ocrCancelBtn: document.getElementById('ocrCancelBtn'),
   selectSameFillBtn: document.getElementById('selectSameFillBtn'),
   selectSameStrokeBtn: document.getElementById('selectSameStrokeBtn'),
   selectSameFontBtn: document.getElementById('selectSameFontBtn'),
@@ -131,6 +145,8 @@ const FONT_CHOICES = [
   'Courier New',
   'Inter'
 ];
+
+const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
 
 const SHAPE_TOOLS = ['rect', 'ellipse', 'line', 'arrow', 'triangle', 'diamond', 'star', 'hexagon', 'plus', 'bracket', 'scaleBar', 'addText'];
 
@@ -946,7 +962,7 @@ function renderStyleControls(caps, style) {
   if (caps.text) {
     const group = addControlGroup('Text');
     const textTargets = textTargetsForSelection();
-    if (caps.textContent) addTextInput(group, 'Content', 'text', style.text || '');
+    if (caps.textContent) addRichTextEditor(group, textTargets[0]);
     else addTextTargetInputs(group, textTargets);
     addRange(group, 'Text size', 'textSize', 4, 96, 1, style.textSize || 14);
     addFontInput(group, 'Font family', 'fontFamily', cleanFont(style.fontFamily));
@@ -999,7 +1015,7 @@ function renderTransformControls() {
   addTransformSlider(group, 'Y (px)', 'y', round(box.y), -canvasHeight, canvasHeight * 2, 1);
   addTransformSlider(group, 'W (px)', 'width', round(box.width), 5, Math.max(canvasWidth * 2, box.width * 3), 1);
   addTransformSlider(group, 'H (px)', 'height', round(box.height), 5, Math.max(canvasHeight * 2, box.height * 3), 1);
-  addTransformSlider(group, 'Rotate (deg)', 'rotate', 0, -180, 180, 1);
+  addTransformSlider(group, 'Rotate (deg)', 'rotate', selectionRotationValue(), -180, 180, 1);
   const row = document.createElement('label');
   row.className = 'check-row compact';
   const input = document.createElement('input');
@@ -1115,6 +1131,151 @@ function addColor(group, label, key, value) {
   group.appendChild(row);
 }
 
+function richTextTarget(target) {
+  return target?.closest?.('text') || target;
+}
+
+function styleSignature(style = {}) {
+  return [
+    style.fontWeight || '',
+    style.fontStyle || '',
+    style.baselineShift || ''
+  ].join('|');
+}
+
+function tspanStyle(node) {
+  const fontWeight = normalizeFontWeight(node.getAttribute('font-weight') || node.style.fontWeight || '');
+  const fontStyle = node.getAttribute('font-style') || node.style.fontStyle || '';
+  const baselineShift = node.getAttribute('baseline-shift') || node.style.baselineShift || '';
+  return {
+    fontWeight: fontWeight === 'bold' ? 'bold' : '',
+    fontStyle: fontStyle === 'italic' ? 'italic' : '',
+    baselineShift: ['super', 'sub'].includes(baselineShift) ? baselineShift : ''
+  };
+}
+
+function richTextChars(textEl) {
+  const chars = [];
+  const tspans = Array.from(textEl.children || []).filter(child => child.tagName?.toLowerCase() === 'tspan');
+  if (!tspans.length) {
+    return Array.from(textEl.textContent || '').map(ch => ({ ch, style: {} }));
+  }
+  tspans.forEach(tspan => {
+    const style = tspanStyle(tspan);
+    Array.from(tspan.textContent || '').forEach(ch => chars.push({ ch, style: { ...style } }));
+  });
+  return chars.length ? chars : Array.from(textEl.textContent || '').map(ch => ({ ch, style: {} }));
+}
+
+function normalizeRichTextChars(textEl, nextText) {
+  const current = richTextChars(textEl);
+  return Array.from(nextText).map((ch, index) => ({
+    ch,
+    style: current[index]?.ch === ch ? { ...current[index].style } : {}
+  }));
+}
+
+function applyRichStyleToChars(chars, start, end, style) {
+  const from = Math.max(0, Math.min(start, end));
+  const to = Math.min(chars.length, Math.max(start, end));
+  if (from === to) return false;
+  for (let index = from; index < to; index += 1) {
+    const next = { ...chars[index].style };
+    if (style.fontWeight !== undefined) next.fontWeight = style.fontWeight === 'bold' ? 'bold' : '';
+    if (style.fontStyle !== undefined) next.fontStyle = style.fontStyle === 'italic' ? 'italic' : '';
+    if (style.baselineShift !== undefined) next.baselineShift = style.baselineShift || '';
+    chars[index].style = next;
+  }
+  return true;
+}
+
+function rebuildRichText(textEl, chars) {
+  const baseX = textEl.getAttribute('x') || textEl.querySelector('tspan[x]')?.getAttribute('x') || 0;
+  const existingChildren = Array.from(textEl.childNodes);
+  existingChildren.forEach(child => child.remove());
+  let lineStart = true;
+  let active = null;
+  const appendRun = char => {
+    const signature = styleSignature(char.style);
+    if (!active || active.signature !== signature || lineStart) {
+      active = createSvgElement('tspan', {});
+      active.signature = signature;
+      active.setAttribute('x', baseX);
+      if (!lineStart) active.removeAttribute('x');
+      if (lineStart && textEl.childNodes.length) active.setAttribute('dy', '1.2em');
+      if (char.style.fontWeight) active.setAttribute('font-weight', char.style.fontWeight);
+      if (char.style.fontStyle) active.setAttribute('font-style', char.style.fontStyle);
+      if (char.style.baselineShift) {
+        active.setAttribute('baseline-shift', char.style.baselineShift);
+        active.setAttribute('font-size', '70%');
+      }
+      textEl.appendChild(active);
+      lineStart = false;
+    }
+    active.textContent += char.ch;
+  };
+  chars.forEach(char => {
+    if (char.ch === '\n') {
+      lineStart = true;
+      active = null;
+      return;
+    }
+    appendRun(char);
+  });
+  if (!textEl.childNodes.length) textEl.textContent = '';
+}
+
+function addRichTextEditor(group, target) {
+  const textEl = richTextTarget(target);
+  if (!textEl) return;
+  const wrap = document.createElement('div');
+  wrap.className = 'rich-text-editor';
+  const label = document.createElement('label');
+  label.className = 'text-edit-row';
+  const labelText = document.createElement('span');
+  labelText.textContent = 'Content';
+  const textarea = document.createElement('textarea');
+  textarea.rows = 3;
+  textarea.value = textEl.textContent || '';
+  label.append(labelText, textarea);
+
+  const actions = document.createElement('div');
+  actions.className = 'rich-text-actions';
+  [
+    ['Regular', { fontWeight: '', fontStyle: '', baselineShift: '' }],
+    ['Bold', { fontWeight: 'bold' }],
+    ['Italic', { fontStyle: 'italic' }],
+    ['x²', { baselineShift: 'super' }],
+    ['O₂', { baselineShift: 'sub' }]
+  ].forEach(([text, style]) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = text;
+    button.addEventListener('click', () => {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const chars = normalizeRichTextChars(textEl, textarea.value);
+      if (!applyRichStyleToChars(chars, start, end, style)) return;
+      rebuildRichText(textEl, chars);
+      commitHistory();
+      updateGroups();
+      renderSelectionResizeOverlay();
+      textarea.focus();
+      textarea.setSelectionRange(start, end);
+    });
+    actions.appendChild(button);
+  });
+
+  textarea.addEventListener('change', () => {
+    rebuildRichText(textEl, normalizeRichTextChars(textEl, textarea.value));
+    commitHistory();
+    updateGroups();
+    renderSelectionResizeOverlay();
+  });
+  wrap.append(label, actions);
+  group.appendChild(wrap);
+}
+
 function addTextInput(group, label, key, value) {
   const row = document.createElement('label');
   row.className = 'control-row full';
@@ -1168,6 +1329,20 @@ function addFontInput(group, label, key, value) {
   input.addEventListener('input', () => applyStyle({ [key]: input.value }));
   row.append(label, input);
   group.appendChild(row);
+}
+
+function ensureSelectOption(select, value) {
+  if (!select || !value) return;
+  if (!Array.from(select.options).some(option => option.value === value)) {
+    select.appendChild(new Option(value, value));
+  }
+}
+
+function populateOcrFontChoices() {
+  if (!els.ocrFontFamily) return;
+  els.ocrFontFamily.innerHTML = '';
+  FONT_CHOICES.forEach(font => els.ocrFontFamily.appendChild(new Option(font, font)));
+  els.ocrFontFamily.value = 'Arial';
 }
 
 function addSelectControl(group, label, key, value, options) {
@@ -1456,12 +1631,49 @@ function finishResizeDrag() {
   return true;
 }
 
+function normalizeAngle(value) {
+  const angle = Number(value) || 0;
+  return ((angle + 180) % 360 + 360) % 360 - 180;
+}
+
+function angleDelta(target, base) {
+  return normalizeAngle(target - base);
+}
+
+function elementRotationValue(el) {
+  const stored = Number(el.dataset.editorRotation);
+  if (Number.isFinite(stored)) return normalizeAngle(stored);
+  try {
+    const parentCtm = elementParentCtm(el);
+    const ctm = el.getCTM();
+    if (!parentCtm || !ctm) return 0;
+    const local = parentCtm.inverse().multiply(ctm);
+    return normalizeAngle(Math.atan2(local.b, local.a) * 180 / Math.PI);
+  } catch (error) {
+    return 0;
+  }
+}
+
+function selectionRotationValue() {
+  if (!state.selected.length) return 0;
+  const rotations = state.selected.map(elementRotationValue);
+  const first = rotations[0];
+  const same = rotations.every(value => Math.abs(angleDelta(value, first)) < 0.5);
+  return same ? round(first) : 0;
+}
+
 function beginTransformEdit() {
   const box = selectionCanvasBox();
   if (!box) return;
   state.transformEdit = {
     box,
-    transforms: new Map(state.selected.map(el => [el, el.getAttribute('transform') || '']))
+    rotationBase: selectionRotationValue(),
+    transforms: new Map(state.selected.map(el => [el, el.getAttribute('transform') || ''])),
+    items: state.selected.map(el => ({
+      el,
+      ctm: el.getCTM(),
+      parentCtm: elementParentCtm(el)
+    })).filter(item => item.ctm && item.parentCtm)
   };
 }
 
@@ -1474,21 +1686,25 @@ function applyTransformSlider(key, value) {
   if (key === 'x' || key === 'y') {
     const dx = key === 'x' ? value - box.x : 0;
     const dy = key === 'y' ? value - box.y : 0;
-    state.selected.forEach(el => {
-      const base = edit.transforms.get(el) || '';
-      const delta = canvasVectorInElementParent(el, dx, dy);
-      el.setAttribute('transform', `${base} translate(${round(delta.x)} ${round(delta.y)})`.trim());
+    edit.items.forEach(item => {
+      const localMatrix = item.parentCtm.inverse()
+        .multiply(canvasTranslateMatrix(dx, dy))
+        .multiply(item.ctm);
+      item.el.setAttribute('transform', matrixToTransform(localMatrix));
     });
     return;
   }
 
   if (key === 'rotate') {
+    const delta = angleDelta(value, edit.rotationBase || 0);
     const cx = box.x + box.width / 2;
     const cy = box.y + box.height / 2;
-    state.selected.forEach(el => {
-      const base = edit.transforms.get(el) || '';
-      const center = canvasPointInElementParent(el, cx, cy);
-      el.setAttribute('transform', `${base} rotate(${round(value)} ${round(center.x)} ${round(center.y)})`.trim());
+    edit.items.forEach(item => {
+      const localMatrix = item.parentCtm.inverse()
+        .multiply(canvasRotateMatrix(cx, cy, delta))
+        .multiply(item.ctm);
+      item.el.setAttribute('transform', matrixToTransform(localMatrix));
+      item.el.dataset.editorRotation = round(normalizeAngle(value));
     });
     return;
   }
@@ -1505,11 +1721,11 @@ function applyTransformSlider(key, value) {
     sx = keepRatio ? sy : 1;
   }
 
-  state.selected.forEach(el => {
-    const base = edit.transforms.get(el) || '';
-    const anchor = canvasPointInElementParent(el, box.x, box.y);
-    const transform = `translate(${round(anchor.x)} ${round(anchor.y)}) scale(${round(sx)} ${round(sy)}) translate(${-round(anchor.x)} ${-round(anchor.y)})`;
-    el.setAttribute('transform', `${base} ${transform}`.trim());
+  edit.items.forEach(item => {
+    const localMatrix = item.parentCtm.inverse()
+      .multiply(canvasScaleMatrix(box.x, box.y, sx, sy))
+      .multiply(item.ctm);
+    item.el.setAttribute('transform', matrixToTransform(localMatrix));
   });
 }
 
@@ -2014,9 +2230,15 @@ function moveBy(dx, dy) {
 }
 
 function appendTranslate(el, dx, dy) {
-  const current = el.getAttribute('transform') || '';
-  const delta = canvasVectorInElementParent(el, dx, dy);
-  el.setAttribute('transform', `${current} translate(${round(delta.x)} ${round(delta.y)})`.trim());
+  try {
+    const parentCtm = elementParentCtm(el);
+    const ctm = el.getCTM();
+    if (!parentCtm || !ctm) return;
+    const localMatrix = parentCtm.inverse()
+      .multiply(canvasTranslateMatrix(dx, dy))
+      .multiply(ctm);
+    el.setAttribute('transform', matrixToTransform(localMatrix));
+  } catch (error) {}
 }
 
 function canvasPointInElementParent(el, x, y) {
@@ -2061,6 +2283,19 @@ function canvasScaleMatrix(anchorX, anchorY, sx, sy) {
   return svgMatrix(1, 0, 0, 1, anchorX, anchorY)
     .multiply(svgMatrix(sx, 0, 0, sy, 0, 0))
     .multiply(svgMatrix(1, 0, 0, 1, -anchorX, -anchorY));
+}
+
+function canvasTranslateMatrix(dx, dy) {
+  return svgMatrix(1, 0, 0, 1, dx, dy);
+}
+
+function canvasRotateMatrix(centerX, centerY, degrees) {
+  const radians = degrees * Math.PI / 180;
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
+  return svgMatrix(1, 0, 0, 1, centerX, centerY)
+    .multiply(svgMatrix(cos, sin, -sin, cos, 0, 0))
+    .multiply(svgMatrix(1, 0, 0, 1, -centerX, -centerY));
 }
 
 function matrixToTransform(matrix) {
@@ -2352,6 +2587,7 @@ function cleanExportSvg() {
   clone.querySelector('#canvasResizeOverlay')?.remove();
   clone.querySelector('#selectionMarquee')?.remove();
   clone.querySelectorAll('[data-editor-id]').forEach(el => el.removeAttribute('data-editor-id'));
+  clone.querySelectorAll('[data-editor-rotation]').forEach(el => el.removeAttribute('data-editor-rotation'));
   clone.querySelectorAll('[data-file-id]').forEach(el => el.removeAttribute('data-file-id'));
   clone.querySelectorAll('[data-label]').forEach(el => el.removeAttribute('data-label'));
   clone.querySelectorAll('[data-locked]').forEach(el => el.removeAttribute('data-locked'));
@@ -2378,6 +2614,10 @@ function cleanExportSvg() {
 
 function downloadText(name, text, type) {
   const blob = new Blob([text], { type });
+  downloadBlob(name, blob);
+}
+
+function downloadBlob(name, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -2391,7 +2631,7 @@ function exportFigure() {
   const svgText = cleanExportSvg();
   if (format === 'svg') {
     downloadText('figure_final.svg', svgText, 'image/svg+xml');
-  } else if (format === 'png' || format === 'jpeg') {
+  } else if (format === 'png' || format === 'jpeg' || format === 'tiff') {
     exportRaster(svgText, format);
   } else {
     openPrintPdf(svgText);
@@ -2414,22 +2654,306 @@ function exportRaster(svgText, format) {
     canvas.height = Math.ceil(outHeight * dpiScale);
     const ctx = canvas.getContext('2d');
     ctx.scale(dpiScale, dpiScale);
-    if (format === 'jpeg' || !state.transparentBackground) {
+    if (format === 'jpeg' || format === 'tiff' || !state.transparentBackground) {
       ctx.fillStyle = state.transparentBackground ? '#ffffff' : state.background;
       ctx.fillRect(0, 0, outWidth, outHeight);
     }
     ctx.drawImage(img, 0, 0, outWidth, outHeight);
     URL.revokeObjectURL(url);
+    if (format === 'tiff') {
+      const dpi = Number(els.exportDpi?.value) || 300;
+      downloadBlob('figure_final.tiff', canvasToTiffBlob(canvas, dpi));
+      return;
+    }
     canvas.toBlob(out => {
-      const outUrl = URL.createObjectURL(out);
-      const a = document.createElement('a');
-      a.href = outUrl;
-      a.download = `figure_final.${format === 'jpeg' ? 'jpg' : 'png'}`;
-      a.click();
-      URL.revokeObjectURL(outUrl);
+      if (out) downloadBlob(`figure_final.${format === 'jpeg' ? 'jpg' : 'png'}`, out);
     }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.95);
   };
   img.src = url;
+}
+
+function canvasToTiffBlob(canvas, dpi = 300) {
+  const width = canvas.width;
+  const height = canvas.height;
+  const image = canvas.getContext('2d').getImageData(0, 0, width, height).data;
+  const pixelBytes = width * height * 3;
+  const entries = [
+    [256, 4, 1, width],
+    [257, 4, 1, height],
+    [258, 3, 3, 'bits'],
+    [259, 3, 1, 1],
+    [262, 3, 1, 2],
+    [273, 4, 1, 'pixels'],
+    [277, 3, 1, 3],
+    [278, 4, 1, height],
+    [279, 4, 1, pixelBytes],
+    [282, 5, 1, 'xres'],
+    [283, 5, 1, 'yres'],
+    [296, 3, 1, 2]
+  ];
+  const ifdOffset = 8;
+  const ifdSize = 2 + entries.length * 12 + 4;
+  let offset = ifdOffset + ifdSize;
+  const offsets = {
+    bits: offset,
+    xres: offset + 6,
+    yres: offset + 14,
+    pixels: offset + 22
+  };
+  const buffer = new ArrayBuffer(offsets.pixels + pixelBytes);
+  const view = new DataView(buffer);
+  let pos = 0;
+
+  view.setUint8(pos++, 0x49);
+  view.setUint8(pos++, 0x49);
+  view.setUint16(pos, 42, true); pos += 2;
+  view.setUint32(pos, ifdOffset, true);
+
+  pos = ifdOffset;
+  view.setUint16(pos, entries.length, true); pos += 2;
+  entries.forEach(([tag, type, count, value]) => {
+    view.setUint16(pos, tag, true); pos += 2;
+    view.setUint16(pos, type, true); pos += 2;
+    view.setUint32(pos, count, true); pos += 4;
+    if (typeof value === 'string') {
+      view.setUint32(pos, offsets[value], true);
+    } else if (type === 3 && count === 1) {
+      view.setUint16(pos, value, true);
+      view.setUint16(pos + 2, 0, true);
+    } else {
+      view.setUint32(pos, value, true);
+    }
+    pos += 4;
+  });
+  view.setUint32(pos, 0, true);
+
+  pos = offsets.bits;
+  [8, 8, 8].forEach(value => {
+    view.setUint16(pos, value, true);
+    pos += 2;
+  });
+  [offsets.xres, offsets.yres].forEach(rationalOffset => {
+    view.setUint32(rationalOffset, dpi, true);
+    view.setUint32(rationalOffset + 4, 1, true);
+  });
+
+  pos = offsets.pixels;
+  for (let i = 0; i < image.length; i += 4) {
+    view.setUint8(pos++, image[i]);
+    view.setUint8(pos++, image[i + 1]);
+    view.setUint8(pos++, image[i + 2]);
+  }
+
+  return new Blob([buffer], { type: 'image/tiff' });
+}
+
+function updateOcrStatus(message) {
+  if (els.ocrStatus) els.ocrStatus.textContent = message;
+}
+
+function loadScriptOnce(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve();
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`Could not load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+async function getOcrWorker() {
+  if (state.ocrWorkerPromise) return state.ocrWorkerPromise;
+  state.ocrWorkerPromise = (async () => {
+    updateOcrStatus('Loading OCR engine...');
+    await loadScriptOnce(TESSERACT_CDN);
+    if (!window.Tesseract?.createWorker) throw new Error('Tesseract.js did not load.');
+    const worker = await window.Tesseract.createWorker('eng', 1, {
+      logger: message => {
+        if (message.status === 'recognizing text' && Number.isFinite(message.progress)) {
+          updateOcrStatus(`Recognizing text ${Math.round(message.progress * 100)}%...`);
+        } else if (message.status) {
+          updateOcrStatus(`${message.status}...`);
+        }
+      }
+    });
+    try {
+      await worker.setParameters({
+        tessedit_pageseg_mode: '6',
+        preserve_interword_spaces: '1'
+      });
+    } catch (error) {}
+    return worker;
+  })();
+  return state.ocrWorkerPromise;
+}
+
+function cleanCloneForRaster() {
+  const clone = els.svg.cloneNode(true);
+  clone.querySelectorAll('.svg-selected-element').forEach(el => el.classList.remove('svg-selected-element'));
+  clone.querySelector('#selectionResizeOverlay')?.remove();
+  clone.querySelector('#canvasResizeOverlay')?.remove();
+  clone.querySelector('#selectionMarquee')?.remove();
+  clone.querySelectorAll('[data-hidden="true"]').forEach(el => el.remove());
+  clone.querySelectorAll('[data-editor-id], [data-editor-rotation], [data-file-id], [data-label], [data-locked], [data-hidden]').forEach(el => {
+    el.removeAttribute('data-editor-id');
+    el.removeAttribute('data-editor-rotation');
+    el.removeAttribute('data-file-id');
+    el.removeAttribute('data-label');
+    el.removeAttribute('data-locked');
+    el.removeAttribute('data-hidden');
+  });
+  clone.removeAttribute('class');
+  clone.setAttribute('xmlns', SVG_NS);
+  return clone;
+}
+
+function rasterizeSvgRegion(box) {
+  return new Promise((resolve, reject) => {
+    const pad = 5;
+    const width = Math.max(1, box.width + pad * 2);
+    const height = Math.max(1, box.height + pad * 2);
+    const maxSide = Math.max(width, height);
+    const scale = Math.min(8, Math.max(3, 1800 / maxSide));
+    const clone = cleanCloneForRaster();
+    clone.setAttribute('viewBox', `${round(box.x - pad)} ${round(box.y - pad)} ${round(width)} ${round(height)}`);
+    clone.setAttribute('width', round(width));
+    clone.setAttribute('height', round(height));
+    const svgText = new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([svgText], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.ceil(width * scale);
+      canvas.height = Math.ceil(height * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0, width, height);
+      URL.revokeObjectURL(url);
+      resolve(canvas);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Could not rasterize selected region for OCR.'));
+    };
+    img.src = url;
+  });
+}
+
+function normalizedOcrText(text) {
+  return String(text || '')
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+async function recognizeSelectedText() {
+  if (state.ocrBusy) return;
+  const box = selectionCanvasBox();
+  els.ocrPanel.hidden = false;
+  state.ocrResultBox = box;
+  if (!box || box.width < 2 || box.height < 2) {
+    updateOcrStatus('Select the path-shaped text area first.');
+    return;
+  }
+  state.ocrBusy = true;
+  updateToolbar();
+  els.ocrRecognizeBtn.textContent = 'Reading...';
+  els.ocrInsertBtn.disabled = true;
+  try {
+    updateOcrStatus('Preparing selected region...');
+    const canvas = await rasterizeSvgRegion(box);
+    const worker = await getOcrWorker();
+    updateOcrStatus('Recognizing text...');
+    const result = await worker.recognize(canvas);
+    const text = normalizedOcrText(result?.data?.text);
+    const confidence = Number(result?.data?.confidence);
+    const style = styleOf(state.selected[0]);
+    els.ocrText.value = text;
+    els.ocrFontSize.value = Math.max(6, Math.min(160, Math.round(box.height * 0.72)));
+    els.ocrRotation.value = 0;
+    const fontFamily = cleanFont(style.fontFamily) || 'Arial';
+    ensureSelectOption(els.ocrFontFamily, fontFamily);
+    els.ocrFontFamily.value = fontFamily;
+    els.ocrFontStyle.value = style.fontStyle === 'italic'
+      ? 'italic'
+      : normalizeFontWeight(style.fontWeight) === 'bold'
+        ? 'bold'
+        : 'normal';
+    els.ocrInsertBtn.disabled = !text;
+    updateOcrStatus(text
+      ? `OCR ready${Number.isFinite(confidence) ? `, confidence ${Math.round(confidence)}%` : ''}. Edit before inserting.`
+      : 'OCR finished but did not find text. Try selecting a tighter area.');
+  } catch (error) {
+    updateOcrStatus(`OCR failed: ${error.message}`);
+  } finally {
+    state.ocrBusy = false;
+    els.ocrRecognizeBtn.textContent = 'Recognize text';
+    updateToolbar();
+  }
+}
+
+function insertRecognizedText() {
+  const text = normalizedOcrText(els.ocrText.value);
+  const box = state.ocrResultBox || selectionCanvasBox();
+  if (!text || !box) return;
+  const originalSelection = state.selected.slice();
+  const fontSize = Math.max(4, Number(els.ocrFontSize.value) || 14);
+  const rotation = Number(els.ocrRotation.value) || 0;
+  const fontFamily = els.ocrFontFamily.value || 'Arial';
+  const fontStyleChoice = els.ocrFontStyle.value || 'normal';
+  const seed = styleOf(originalSelection[0]);
+  const fill = firstPaint(seed.fill, seed.stroke, '#111111');
+  const textEl = createSvgElement('text', {
+    x: round(box.x),
+    y: round(box.y + fontSize),
+    fill,
+    'font-size': fontSize,
+    'font-family': fontFamily,
+    'font-weight': fontStyleChoice === 'bold' ? 'bold' : 'normal',
+    'font-style': fontStyleChoice === 'italic' ? 'italic' : 'normal',
+    'xml:space': 'preserve'
+  });
+  text.split('\n').forEach((line, index) => {
+    const tspan = createSvgElement('tspan', {
+      x: round(box.x),
+      dy: index === 0 ? 0 : round(fontSize * 1.2)
+    });
+    tspan.textContent = line;
+    textEl.appendChild(tspan);
+  });
+  if (rotation) {
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    textEl.setAttribute('transform', `rotate(${round(rotation)} ${round(cx)} ${round(cy)})`);
+  }
+  assignId(textEl);
+  els.content.appendChild(textEl);
+  if (els.ocrReplaceOriginal.checked) {
+    originalSelection
+      .filter(el => el.parentNode && !el.classList.contains('figure-object'))
+      .forEach(el => el.remove());
+  }
+  selectElements([textEl]);
+  els.ocrPanel.hidden = true;
+  state.ocrResultBox = null;
+  commitHistory();
+  updateGroups();
+  renderSelection();
+}
+
+function cancelOcrPanel() {
+  els.ocrPanel.hidden = true;
+  state.ocrResultBox = null;
+  updateOcrStatus('Select path-shaped text, then run OCR.');
 }
 
 function applyArtboardPreset() {
@@ -2469,6 +2993,7 @@ function updateToolbar() {
   [els.deleteBtn, els.duplicateBtn, els.frontBtn, els.upBtn, els.downBtn, els.backBtn, els.groupBtn, els.ungroupBtn].forEach(button => {
     button.disabled = !hasSelection;
   });
+  if (els.ocrRecognizeBtn) els.ocrRecognizeBtn.disabled = !hasSelection || state.ocrBusy;
   els.textModeBtn.classList.toggle('active', state.textMode);
   els.textModeBtn.setAttribute('aria-pressed', String(state.textMode));
   els.svg.classList.toggle('text-mode', state.textMode);
@@ -2511,6 +3036,51 @@ function setSidePanel(side, collapsed, persist = false) {
   button.setAttribute('aria-expanded', String(!collapsed));
   if (persist) storePanelState(side, collapsed);
   requestAnimationFrame(renderSelection);
+}
+
+function storedSectionCollapsed(key) {
+  try {
+    return localStorage.getItem(`figureStudio.rightSection.${key}`) === 'true';
+  } catch (error) {
+    return false;
+  }
+}
+
+function storeSectionCollapsed(key, collapsed) {
+  try {
+    localStorage.setItem(`figureStudio.rightSection.${key}`, String(collapsed));
+  } catch (error) {}
+}
+
+function sectionKeyFromPanel(panel, index) {
+  const title = panel.querySelector('h2')?.textContent || `panel-${index + 1}`;
+  return title.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-');
+}
+
+function setRightSectionCollapsed(panel, button, key, collapsed, persist = false) {
+  panel.classList.toggle('is-section-collapsed', collapsed);
+  button.textContent = collapsed ? '▸' : '▾';
+  button.title = collapsed ? 'Expand panel' : 'Collapse panel';
+  button.setAttribute('aria-expanded', String(!collapsed));
+  if (persist) storeSectionCollapsed(key, collapsed);
+}
+
+function setupRightPanelSections() {
+  Array.from(els.rightPanel.querySelectorAll(':scope > .panel')).forEach((panel, index) => {
+    const head = panel.querySelector('.panel-head');
+    if (!head || head.querySelector('.panel-collapse-button')) return;
+    const key = sectionKeyFromPanel(panel, index);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'panel-collapse-button';
+    button.setAttribute('aria-label', `Toggle ${panel.querySelector('h2')?.textContent || 'panel'}`);
+    head.appendChild(button);
+    setRightSectionCollapsed(panel, button, key, storedSectionCollapsed(key));
+    button.addEventListener('click', () => {
+      setRightSectionCollapsed(panel, button, key, !panel.classList.contains('is-section-collapsed'), true);
+      requestAnimationFrame(renderSelection);
+    });
+  });
 }
 
 function clampPanelWidth(side, width) {
@@ -2744,6 +3314,9 @@ els.downBtn.addEventListener('click', () => moveLayers('down'));
 els.backBtn.addEventListener('click', () => moveLayers('back'));
 els.groupBtn.addEventListener('click', groupSelection);
 els.ungroupBtn.addEventListener('click', ungroupSelection);
+els.ocrRecognizeBtn.addEventListener('click', recognizeSelectedText);
+els.ocrInsertBtn.addEventListener('click', insertRecognizedText);
+els.ocrCancelBtn.addEventListener('click', cancelOcrPanel);
 els.selectSameFillBtn.addEventListener('click', () => selectSame('fill'));
 els.selectSameStrokeBtn.addEventListener('click', () => selectSame('stroke'));
 els.selectSameFontBtn.addEventListener('click', () => selectSame('font'));
@@ -2868,6 +3441,8 @@ document.addEventListener('pointercancel', () => {
 restorePanelWidths();
 setSidePanel('left', storedPanelState('left'));
 setSidePanel('right', storedPanelState('right'));
+setupRightPanelSections();
+populateOcrFontChoices();
 updateCanvas();
 commitHistory();
 renderFileList();

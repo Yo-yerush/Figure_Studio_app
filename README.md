@@ -30,7 +30,8 @@ If Python is not available, the launcher opens `index.html` directly.
 - Edit SVG elements directly in the browser.
 - Illustrator-style tool rail with Select, Direct Select, Text, Pan, and shape tools.
 - Add labels, rectangles, ellipses, lines, arrows, triangles, diamonds, stars, hexagons, plus/cross marks, brackets, and scale bars.
-- Text mode highlights editable SVG text and supports content, size, font, bold, and italic editing.
+- Text mode highlights editable SVG text and supports content, size, font, bold, italic, and selected-range rich text editing.
+- Manual OCR text recovery can recognize selected path-shaped labels and insert editable SVG text after user confirmation.
 - Selection inspector for transform, rotation, fill, stroke, line width, dash, arrowhead, opacity, point size, and text style.
 - Resize selected elements directly on the canvas with corner and side handles.
 - Resize the canvas directly with canvas handles.
@@ -42,12 +43,14 @@ If Python is not available, the launcher opens `index.html` directly.
 - Dark workspace theme with a prominent bright artboard and separated edit, zoom, and export toolbar groups.
 - Resizable and collapsible left/right side panels for a larger canvas view.
 - Undo/redo, duplicate, delete, drag/drop loading, and keyboard movement.
-- Export final figures as SVG, PNG, JPEG, or browser print/save-as-PDF, with export scope and DPI controls.
+- Export final figures as SVG, PNG, JPEG, TIFF, or browser print/save-as-PDF, with export scope and DPI controls.
 
 ## Notes
 
 PDF uploads are represented as movable placeholders in the canvas. Direct internal PDF element editing requires a PDF renderer and is outside this dependency-free static app.
 
 Some SVGs export text as paths. Those labels are no longer real text and cannot be edited as text unless the source figure is re-exported with text preserved.
+
+OCR text recovery uses Tesseract.js from a CDN when the Recognize text button is first pressed, so it needs internet access for the initial OCR engine/language download. OCR results should be reviewed before replacing the original path shapes.
 
 The old Shiny prototype remains in `app_040626/` as a legacy reference. The current app runs from root `index.html` with source files in `src/`.
