@@ -12,7 +12,7 @@ Repository: https://github.com/Yo-yerush/Figure_Studio_app
 Double-click:
 
 ```bat
-run_app.bat
+Figure_Editor.html
 ```
 
 The launcher starts a local static server at:
@@ -20,8 +20,6 @@ The launcher starts a local static server at:
 ```text
 http://127.0.0.1:4173/
 ```
-
-If Python is not available, the launcher opens `index.html` directly.
 
 ## Features
 
