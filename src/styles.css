@@ -201,6 +201,21 @@ button:disabled {
   padding: 0 8px;
 }
 
+.toolbar-file-name {
+  width: 150px;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control);
+  color: var(--text);
+  padding: 0 9px;
+}
+
+.toolbar-file-name:focus {
+  outline: 2px solid rgba(245, 158, 11, 0.45);
+  border-color: var(--focus);
+}
+
 .zoom-value {
   display: inline-grid;
   place-items: center;

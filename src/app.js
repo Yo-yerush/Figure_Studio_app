@@ -88,6 +88,7 @@ const els = {
   zoomValue: document.getElementById('zoomValue'),
   exportBtn: document.getElementById('exportBtn'),
   exportFormat: document.getElementById('exportFormat'),
+  exportFileName: document.getElementById('exportFileName'),
   exportScope: document.getElementById('exportScope'),
   exportDpi: document.getElementById('exportDpi'),
   exportDpiValue: document.getElementById('exportDpiValue'),
@@ -147,6 +148,12 @@ const FONT_CHOICES = [
 ];
 
 const TESSERACT_CDN = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+const PDFJS_CDN = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.min.js';
+const PDFJS_WORKER_CDN = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.worker.min.js';
+const PDFJS_CMAP_CDN = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/cmaps/';
+const PDFJS_STANDARD_FONT_CDN = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/standard_fonts/';
+
+let pdfJsPromise = null;
 
 const SHAPE_TOOLS = ['rect', 'ellipse', 'line', 'arrow', 'triangle', 'diamond', 'star', 'hexagon', 'plus', 'bracket', 'scaleBar', 'addText'];
 
@@ -1762,7 +1769,7 @@ async function addFiles(fileList) {
     try {
       if (ext === 'svg') await importSvgFile(file, item);
       else if (['png', 'jpg', 'jpeg'].includes(ext)) await importImageFile(file, item);
-      else if (ext === 'pdf') importPdfPlaceholder(item);
+      else if (ext === 'pdf') await importPdfFile(file, item);
     } catch (error) {
       console.error(error);
     }
@@ -1771,6 +1778,42 @@ async function addFiles(fileList) {
   renderFileList();
   updateGroups();
   updateToolbar();
+}
+
+async function importPdfFile(file, item) {
+  const shouldConvert = window.confirm(
+    `Convert "${file.name}" to editable SVG before importing?\n\n` +
+    'Vector PDF content will become selectable SVG shapes where possible. Embedded images and outlined text may still not be editable as real text.'
+  );
+
+  if (!shouldConvert) {
+    importPdfPlaceholder(item, 'Conversion skipped. Reload this PDF and approve conversion to edit SVG content.');
+    return;
+  }
+
+  try {
+    await importPdfAsSvgFile(file, item);
+  } catch (error) {
+    console.error(error);
+    try {
+      await importPdfAsRasterFile(file, item);
+      window.alert(
+        `Could not convert "${file.name}" to editable SVG, so it was imported as a rendered image instead.\n\n` +
+        `Conversion error: ${errorMessage(error)}`
+      );
+    } catch (fallbackError) {
+      console.error(fallbackError);
+      window.alert(
+        `Could not convert "${file.name}" to SVG. A placeholder was added instead.\n\n` +
+        `Conversion error: ${errorMessage(error)}`
+      );
+      importPdfPlaceholder(item, 'PDF to SVG conversion failed.');
+    }
+  }
+}
+
+function errorMessage(error) {
+  return String(error?.message || error || 'Unknown error');
 }
 
 async function importSvgFile(file, item) {
@@ -1802,6 +1845,197 @@ async function importSvgFile(file, item) {
   });
   Array.from(source.childNodes).forEach(child => nested.appendChild(document.importNode(child, true)));
   wrapper.appendChild(nested);
+  els.content.appendChild(wrapper);
+  assignIds();
+}
+
+async function loadPdfJs() {
+  if (window.pdfjsLib?.getDocument && window.pdfjsLib?.SVGGraphics) {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN;
+    return window.pdfjsLib;
+  }
+  if (!pdfJsPromise) {
+    pdfJsPromise = loadExternalScript(PDFJS_CDN).then(() => {
+      const pdfjs = window.pdfjsLib;
+      if (!pdfjs?.getDocument || !pdfjs?.SVGGraphics) {
+        throw new Error('PDF.js SVG renderer is not available.');
+      }
+      pdfjs.GlobalWorkerOptions.workerSrc = PDFJS_WORKER_CDN;
+      return pdfjs;
+    });
+  }
+  return pdfJsPromise;
+}
+
+function loadExternalScript(src) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing?.dataset.loaded === 'true') {
+      resolve();
+      return;
+    }
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true });
+      existing.addEventListener('error', () => reject(new Error(`Failed to load ${src}`)), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = () => {
+      script.dataset.loaded = 'true';
+      resolve();
+    };
+    script.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(script);
+  });
+}
+
+function pdfLoadOptions(file) {
+  return file.arrayBuffer().then(buffer => ({
+    data: new Uint8Array(buffer),
+    cMapUrl: PDFJS_CMAP_CDN,
+    cMapPacked: true,
+    standardFontDataUrl: PDFJS_STANDARD_FONT_CDN,
+    isEvalSupported: false,
+    stopAtErrors: false
+  }));
+}
+
+async function importPdfAsSvgFile(file, item) {
+  const pdfjs = await loadPdfJs();
+  const pdf = await pdfjs.getDocument(await pdfLoadOptions(file)).promise;
+  const pages = [];
+  const pageGap = 32;
+  let totalHeight = 0;
+  let maxWidth = 0;
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
+    const operatorList = await page.getOperatorList();
+    const pageSvg = await pdfPageToSvg(pdfjs, page, operatorList, viewport);
+    pageSvg.querySelectorAll('script, foreignObject').forEach(node => node.remove());
+    namespaceSvgIds(pageSvg, `${item.id}-page-${pageNumber}`);
+
+    pages.push({
+      pageNumber,
+      svg: pageSvg,
+      width: viewport.width || numberFrom(pageSvg.getAttribute('width')) || 800,
+      height: viewport.height || numberFrom(pageSvg.getAttribute('height')) || 600,
+      y: totalHeight
+    });
+    maxWidth = Math.max(maxWidth, pages[pages.length - 1].width);
+    totalHeight += pages[pages.length - 1].height + (pageNumber < pdf.numPages ? pageGap : 0);
+    page.cleanup?.();
+  }
+  pdf.cleanup?.();
+
+  if (!pages.length) throw new Error('PDF has no pages to import.');
+
+  const scale = Math.min(1, 620 / Math.max(maxWidth, totalHeight));
+  const p = nextPlacement(maxWidth * scale, totalHeight * scale);
+  const wrapper = createSvgElement('g', {
+    class: 'figure-object',
+    transform: `translate(${p.x} ${p.y}) scale(${scale})`,
+    'data-file-id': item.id,
+    'data-label': item.name
+  });
+  assignId(wrapper);
+
+  pages.forEach(page => {
+    const pageGroup = createSvgElement('g', {
+      transform: `translate(0 ${page.y})`,
+      'data-label': pdf.numPages > 1 ? `${item.name} page ${page.pageNumber}` : item.name
+    });
+    const nested = createSvgElement('svg', {
+      x: 0,
+      y: 0,
+      width: page.width,
+      height: page.height,
+      viewBox: `0 0 ${page.width} ${page.height}`,
+      overflow: 'visible'
+    });
+    Array.from(page.svg.childNodes).forEach(child => nested.appendChild(document.importNode(child, true)));
+    pageGroup.appendChild(nested);
+    wrapper.appendChild(pageGroup);
+  });
+
+  item.kind = pdf.numPages > 1 ? 'pdf-svg' : 'svg';
+  els.content.appendChild(wrapper);
+  assignIds();
+}
+
+async function pdfPageToSvg(pdfjs, page, operatorList, viewport) {
+  try {
+    const svgGraphics = new pdfjs.SVGGraphics(page.commonObjs, page.objs);
+    svgGraphics.embedFonts = true;
+    return await svgGraphics.getSVG(operatorList, viewport);
+  } catch (error) {
+    console.warn('PDF SVG conversion with embedded fonts failed; retrying without embedded fonts.', error);
+    const svgGraphics = new pdfjs.SVGGraphics(page.commonObjs, page.objs);
+    svgGraphics.embedFonts = false;
+    return svgGraphics.getSVG(operatorList, viewport);
+  }
+}
+
+async function importPdfAsRasterFile(file, item) {
+  const pdfjs = await loadPdfJs();
+  const pdf = await pdfjs.getDocument(await pdfLoadOptions(file)).promise;
+  const pages = [];
+  const pageGap = 32;
+  let totalHeight = 0;
+  let maxWidth = 0;
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    const page = await pdf.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 2 });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: context, viewport }).promise;
+    const width = viewport.width / 2;
+    const height = viewport.height / 2;
+    pages.push({
+      pageNumber,
+      dataUrl: canvas.toDataURL('image/png'),
+      width,
+      height,
+      y: totalHeight
+    });
+    maxWidth = Math.max(maxWidth, width);
+    totalHeight += height + (pageNumber < pdf.numPages ? pageGap : 0);
+    page.cleanup?.();
+  }
+  pdf.cleanup?.();
+
+  if (!pages.length) throw new Error('PDF has no pages to render.');
+
+  const scale = Math.min(1, 620 / Math.max(maxWidth, totalHeight));
+  const p = nextPlacement(maxWidth * scale, totalHeight * scale);
+  const wrapper = createSvgElement('g', {
+    class: 'figure-object',
+    transform: `translate(${p.x} ${p.y}) scale(${scale})`,
+    'data-file-id': item.id,
+    'data-label': `${item.name} (rendered PDF image)`
+  });
+  assignId(wrapper);
+
+  pages.forEach(page => {
+    wrapper.appendChild(createSvgElement('image', {
+      href: page.dataUrl,
+      x: 0,
+      y: page.y,
+      width: page.width,
+      height: page.height,
+      'data-label': pdf.numPages > 1 ? `${item.name} page ${page.pageNumber}` : item.name
+    }));
+  });
+
+  item.kind = pdf.numPages > 1 ? 'pdf-image' : 'image';
   els.content.appendChild(wrapper);
   assignIds();
 }
@@ -1901,7 +2135,7 @@ function imageSize(url) {
   });
 }
 
-function importPdfPlaceholder(item) {
+function importPdfPlaceholder(item, note = 'PDF was not converted, so its internal elements are not editable.') {
   const p = nextPlacement(360, 220);
   const group = createSvgElement('g', {
     class: 'figure-object',
@@ -1914,6 +2148,9 @@ function importPdfPlaceholder(item) {
   const text = createSvgElement('text', { x: 24, y: 56, fill: '#334155', 'font-size': 22, 'font-family': 'Arial' });
   text.textContent = `PDF: ${item.name}`;
   group.appendChild(text);
+  const noteText = createSvgElement('text', { x: 24, y: 94, fill: '#64748b', 'font-size': 14, 'font-family': 'Arial' });
+  noteText.textContent = note;
+  group.appendChild(noteText);
   els.content.appendChild(group);
   assignIds();
 }
@@ -2231,14 +2468,16 @@ function moveBy(dx, dy) {
 
 function appendTranslate(el, dx, dy) {
   try {
-    const parentCtm = elementParentCtm(el);
-    const ctm = el.getCTM();
-    if (!parentCtm || !ctm) return;
-    const localMatrix = parentCtm.inverse()
-      .multiply(canvasTranslateMatrix(dx, dy))
-      .multiply(ctm);
+    const vector = canvasVectorInElementParent(el, dx, dy);
+    if (!Number.isFinite(vector.x) || !Number.isFinite(vector.y)) return;
+    const localMatrix = canvasTranslateMatrix(vector.x, vector.y).multiply(elementOwnMatrix(el));
     el.setAttribute('transform', matrixToTransform(localMatrix));
   } catch (error) {}
+}
+
+function elementOwnMatrix(el) {
+  const ownTransform = el.transform?.baseVal?.consolidate();
+  return ownTransform ? ownTransform.matrix : svgMatrix(1, 0, 0, 1, 0, 0);
 }
 
 function canvasPointInElementParent(el, x, y) {
@@ -2626,19 +2865,36 @@ function downloadBlob(name, blob) {
   URL.revokeObjectURL(url);
 }
 
+function exportBaseName() {
+  const raw = els.exportFileName?.value || 'figure_final';
+  const safe = raw
+    .trim()
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, '_')
+    .replace(/\s+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return safe || 'figure_final';
+}
+
+function exportFileName(format) {
+  const ext = format === 'jpeg' ? 'jpg' : format;
+  return `${exportBaseName()}.${ext}`;
+}
+
 function exportFigure() {
   const format = els.exportFormat.value;
   const svgText = cleanExportSvg();
   if (format === 'svg') {
-    downloadText('figure_final.svg', svgText, 'image/svg+xml');
+    downloadText(exportFileName('svg'), svgText, 'image/svg+xml');
   } else if (format === 'png' || format === 'jpeg' || format === 'tiff') {
-    exportRaster(svgText, format);
+    exportRaster(svgText, format, exportFileName(format));
   } else {
-    openPrintPdf(svgText);
+    openPrintPdf(svgText, exportFileName('pdf'));
   }
 }
 
-function exportRaster(svgText, format) {
+function exportRaster(svgText, format, fileName) {
   const img = new Image();
   const blob = new Blob([svgText], { type: 'image/svg+xml' });
   const url = URL.createObjectURL(blob);
@@ -2662,11 +2918,11 @@ function exportRaster(svgText, format) {
     URL.revokeObjectURL(url);
     if (format === 'tiff') {
       const dpi = Number(els.exportDpi?.value) || 300;
-      downloadBlob('figure_final.tiff', canvasToTiffBlob(canvas, dpi));
+      downloadBlob(fileName, canvasToTiffBlob(canvas, dpi));
       return;
     }
     canvas.toBlob(out => {
-      if (out) downloadBlob(`figure_final.${format === 'jpeg' ? 'jpg' : 'png'}`, out);
+      if (out) downloadBlob(fileName, out);
     }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.95);
   };
   img.src = url;
@@ -2979,10 +3235,10 @@ function cropCanvasToContent(selectionOnly = false) {
   renderSelection();
 }
 
-function openPrintPdf(svgText) {
+function openPrintPdf(svgText, fileName = 'figure_final.pdf') {
   const win = window.open('', '_blank');
   if (!win) return;
-  win.document.write(`<!doctype html><title>figure_final.pdf</title><body style="margin:0">${svgText}<script>window.onload=()=>window.print();<\/script></body>`);
+  win.document.write(`<!doctype html><title>${escapeHtml(fileName)}</title><body style="margin:0">${svgText}<script>window.onload=()=>window.print();<\/script></body>`);
   win.document.close();
 }
 

@@ -11,14 +11,8 @@ Repository: https://github.com/Yo-yerush/Figure_Studio_app
 
 Double-click:
 
-```bat
-Figure_Editor.html
 ```
-
-The launcher starts a local static server at:
-
-```text
-http://127.0.0.1:4173/
+Figure_Editor.html
 ```
 
 ## Features
@@ -45,10 +39,8 @@ http://127.0.0.1:4173/
 
 ## Notes
 
-PDF uploads are represented as movable placeholders in the canvas. Direct internal PDF element editing requires a PDF renderer and is outside this dependency-free static app.
+PDF uploads ask for approval before conversion. Approved PDFs are converted in the browser with a pinned PDF.js SVG renderer from a CDN, with PDF.js eval support disabled, then imported as SVG pages so vector shapes can be selected and edited. Embedded raster images remain images, and text may still arrive as paths if the PDF itself stores text that way. If SVG conversion fails for a PDF feature that PDF.js cannot express as SVG, the app reports the conversion error and imports the PDF as rendered page images instead of a blank placeholder.
 
 Some SVGs export text as paths. Those labels are no longer real text and cannot be edited as text unless the source figure is re-exported with text preserved.
 
 OCR text recovery uses Tesseract.js from a CDN when the Recognize text button is first pressed, so it needs internet access for the initial OCR engine/language download. OCR results should be reviewed before replacing the original path shapes.
-
-The old Shiny prototype remains in `app_040626/` as a legacy reference. The current app runs from root `index.html` with source files in `src/`.
