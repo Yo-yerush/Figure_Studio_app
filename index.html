@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Figure Studio</title>
+  <link rel="stylesheet" href="src/styles.css?v=20260609_filename">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="https://github.com/Yo-yerush/Figure_Studio_app" target="_blank" rel="noopener">
+        <div class="brand-mark" aria-hidden="true">𔒝</div>
+        <div>
+          <h1>Figure Studio</h1>
+          <p class="author-line">Yonatan Yerushalmy · Rachel Amir's group</p>
+        </div>
+      </a>
+      <div class="toolbar">
+        <div class="toolbar-group">
+        <label class="button primary">
+          Add files
+          <input id="fileInput" type="file" accept=".svg,.pdf,.png,.jpg,.jpeg" multiple>
+        </label>
+        <button id="undoBtn" type="button">↩</button>
+        <button id="redoBtn" type="button">↪</button>
+        <button id="duplicateBtn" type="button">⿻</button>
+        <button id="deleteBtn" type="button">⌫</button>
+        <button id="fitBtn" type="button">Fit</button>
+        </div>
+        <div class="toolbar-group zoom-group">
+        <button id="zoomOutBtn" type="button">-</button>
+        <span id="zoomValue" class="zoom-value">100%</span>
+        <button id="zoomInBtn" type="button">+</button>
+        </div>
+        <div class="toolbar-group export-group">
+        <select id="exportFormat" class="toolbar-select" title="Export format">
+          <option value="svg">SVG</option>
+          <option value="png">PNG</option>
+          <option value="jpeg">JPEG</option>
+          <option value="tiff">TIFF</option>
+          <option value="pdf">PDF</option>
+        </select>
+        <input id="exportFileName" class="toolbar-file-name" type="text" value="figure_final" aria-label="Output file name" title="Output file name">
+        <button id="exportBtn" type="button" class="button download-button">Export</button>
+        </div>
+      </div>
+    </header>
+
+    <main id="mainLayout" class="main-layout">
+      <aside class="tool-rail" aria-label="Tools">
+        <div class="tool-section">
+          <div class="tool-section-title">Tools</div>
+          <button id="selectToolBtn" type="button" class="tool-button active" data-tool="select" title="Select whole figures and objects">☐</button>
+          <button id="directSelectToolBtn" type="button" class="tool-button" data-tool="directSelect" title="Direct select inner SVG elements">⛶</button>
+        </div>
+        <div class="tool-section">
+          <button id="textModeBtn" type="button" class="tool-button-text" data-tool="text" aria-pressed="false" title="Text mode">𝑻𝓮𝒙𝒕</button>
+          <button id="panToolBtn" type="button" class="tool-button" data-tool="pan" title="Pan the workspace">➤</button>
+        </div>
+        <div class="tool-section shape-section">
+          <div class="tool-section-title">Shapes</div>
+          <div class="shape-tool-grid">
+            <button id="addRectBtn" type="button" class="tool-button-shape shape-tool" data-tool="rect" title="Rectangle">☐</button>
+            <button id="addEllipseBtn" type="button" class="tool-button-shape shape-tool" data-tool="ellipse" title="Ellipse">⬭</button>
+            <button id="addLineBtn" type="button" class="tool-button-shape shape-tool" data-tool="line" title="Line">┃</button>
+            <button id="addArrowBtn" type="button" class="tool-button-shape shape-tool" data-tool="arrow" title="Arrow">→</button>
+            <button id="addTriangleBtn" type="button" class="tool-button-shape shape-tool" data-tool="triangle" title="Triangle">Δ</button>
+            <button id="addDiamondBtn" type="button" class="tool-button-shape shape-tool" data-tool="diamond" title="Diamond">◇</button>
+            <button id="addStarBtn" type="button" class="tool-button-shape shape-tool" data-tool="star" title="Star">☆</button>
+            <button id="addTextBtn" type="button" class="tool-button-shape shape-tool" data-tool="addText" title="Add text label">𝐓</button>
+            <button type="button" class="tool-button-shape shape-tool" data-tool="hexagon" title="Hexagon">⬡</button>
+            <button type="button" class="tool-button-shape shape-tool" data-tool="plus" title="Plus / cross">✚</button>
+            <button type="button" class="tool-button-shape shape-tool" data-tool="bracket" title="Bracket">[ ]</button>
+            <button type="button" class="tool-button-shape shape-tool" data-tool="scaleBar" title="Scale bar">📏</button>
+          </div>
+        </div>
+      </aside>
+
+      <aside id="leftPanel" class="left-panel">
+        <button id="leftPanelToggle" type="button" class="panel-toggle" title="Collapse left panels" aria-label="Collapse left panels">&lsaquo;</button>
+        <div id="leftResizeHandle" class="panel-resize-handle left-resize" title="Drag to resize left panel"></div>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Inputs</h2>
+            <button id="clearBtn" type="button" class="text-button">Clear</button>
+          </div>
+          <div id="fileList" class="file-list"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Canvas</h2>
+          </div>
+          <label class="field fluid">
+            <span>Width (px)</span>
+            <input id="canvasWidth" type="range" min="100" max="6000" step="5" value="1200">
+            <input id="canvasWidthNumber" class="fluid-number" type="number" min="100" max="6000" step="5" value="1200" aria-label="Canvas width">
+          </label>
+          <label class="field fluid">
+            <span>Height (px)</span>
+            <input id="canvasHeight" type="range" min="100" max="6000" step="5" value="800">
+            <input id="canvasHeightNumber" class="fluid-number" type="number" min="100" max="6000" step="5" value="800" aria-label="Canvas height">
+          </label>
+          <label class="field two">
+            Background
+            <input id="backgroundColor" type="color" value="#ffffff">
+          </label>
+          <label class="check-row">
+            <input id="transparentBg" type="checkbox">
+            Transparent background
+          </label>
+          <label class="field full">
+            Preset
+            <select id="artboardPreset" class="select">
+              <option value="custom">Custom</option>
+              <option value="nature-single">Nature single column</option>
+              <option value="nature-double">Nature double column</option>
+              <option value="a4-landscape">A4 landscape</option>
+              <option value="letter-landscape">Letter landscape</option>
+              <option value="square">Square</option>
+            </select>
+          </label>
+          <div class="panel-actions">
+            <button id="cropContentBtn" type="button">Crop to content</button>
+            <button id="resizeSelectionBtn" type="button">Canvas to selection</button>
+          </div>
+        </section>
+      </aside>
+
+      <section id="canvasArea" class="canvas-area">
+        <div id="dropOverlay" class="drop-overlay">Drop files</div>
+        <div class="canvas-frame" id="canvasFrame">
+          <svg id="compositionSvg" class="composition-svg" xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+            <rect id="canvasBackground" x="0" y="0" width="1200" height="800" fill="#ffffff"></rect>
+            <g id="contentLayer"></g>
+            <g id="canvasResizeOverlay" class="canvas-resize-overlay"></g>
+            <g id="selectionResizeOverlay" class="selection-resize-overlay"></g>
+            <rect id="selectionMarquee" class="selection-marquee" x="0" y="0" width="0" height="0"></rect>
+          </svg>
+        </div>
+      </section>
+
+      <aside id="rightPanel" class="right-panel">
+        <button id="rightPanelToggle" type="button" class="panel-toggle" title="Collapse right panels" aria-label="Collapse right panels">&rsaquo;</button>
+        <div id="rightResizeHandle" class="panel-resize-handle right-resize" title="Drag to resize right panel"></div>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Selection</h2>
+            <button id="selectNoneBtn" type="button" class="text-button">None</button>
+          </div>
+          <div id="selectionSummary" class="selection-summary">No selection</div>
+          <div id="styleControls" class="style-controls"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Actions</h2>
+          </div>
+          <div class="action-block">
+            <div class="action-title"> </div>
+            <div class="action-title">Object</div>
+            <div class="panel-actions compact-actions">
+              <button id="groupBtn" type="button">Group</button>
+              <button id="ungroupBtn" type="button">Ungroup</button>
+            </div>
+          </div>
+          <div class="action-block">
+            <div class="action-title"> </div>
+            <div class="action-title">OCR text recovery</div>
+            <div class="panel-actions">
+              <button id="ocrRecognizeBtn" type="button">Recognize text</button>
+            </div>
+            <div id="ocrPanel" class="ocr-panel" hidden>
+              <div id="ocrStatus" class="ocr-status">Select path-shaped text, then run OCR.</div>
+              <label class="field full">
+                Recognized text
+                <textarea id="ocrText" rows="3" spellcheck="false"></textarea>
+              </label>
+              <div class="ocr-grid">
+                <label class="field full">
+                  Size
+                  <input id="ocrFontSize" type="number" min="4" max="160" step="1" value="14">
+                </label>
+                <label class="field full">
+                  Rotate
+                  <input id="ocrRotation" type="number" min="-180" max="180" step="1" value="0">
+                </label>
+              </div>
+              <label class="field full">
+                Font
+                <select id="ocrFontFamily" class="select"></select>
+              </label>
+              <label class="field full">
+                Style
+                <select id="ocrFontStyle" class="select">
+                  <option value="normal">Regular</option>
+                  <option value="bold">Bold</option>
+                  <option value="italic">Italic</option>
+                </select>
+              </label>
+              <label class="check-row compact-check">
+                <input id="ocrReplaceOriginal" type="checkbox" checked>
+                Replace selected shapes
+              </label>
+              <div class="panel-actions">
+                <button id="ocrInsertBtn" type="button">Insert text</button>
+                <button id="ocrCancelBtn" type="button">Cancel</button>
+              </div>
+            </div>
+          </div>
+          <div class="action-block">
+            <div class="action-title"> </div>
+            <div class="action-title">Select same</div>
+            <div class="panel-actions compact-actions">
+              <button id="selectSameFillBtn" type="button">Fill</button>
+              <button id="selectSameStrokeBtn" type="button">Line</button>
+              <button id="selectSameFontBtn" type="button">Font</button>
+              <button id="selectSameShapeBtn" type="button">Shape</button>
+              <button id="selectSameSizeBtn" type="button">Size</button>
+              <button id="selectSameOpacityBtn" type="button">Opacity</button>
+            </div>
+          </div>
+          <div class="action-block">
+            <div class="action-title"> </div>
+            <div class="action-title">Select all</div>
+            <div class="panel-actions compact-actions">
+              <button id="selectAllTextBtn" type="button">Text</button>
+              <button id="selectAllPointsBtn" type="button">Points</button>
+              <button id="selectAllLinesBtn" type="button">Lines</button>
+              <button id="selectAllBarsBtn" type="button">Bars</button>
+              <button id="selectAllShapesBtn" type="button">Shapes</button>
+              <button id="selectAllImagesBtn" type="button">Images</button>
+            </div>
+          </div>
+          <div class="action-block">
+            <div class="action-title"> </div>
+            <div class="action-title">Align</div>
+            <div class="align-grid">
+              <button id="alignTopBtn" type="button">↑</button>
+              <button id="alignMiddleBtn" type="button">↕</button>
+              <button id="alignBottomBtn" type="button">↓</button>
+              <button id="alignLeftBtn" type="button">←</button>
+              <button id="alignCenterBtn" type="button">↔</button>
+              <button id="alignRightBtn" type="button">→</button>
+              <button id="distributeHBtn" type="button">III</button>
+              <button id="distributeVBtn" type="button">☰</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Layers</h2>
+          </div>
+          <div id="layerList" class="layer-list">
+            <div class="layer-empty">No layers</div>
+          </div>
+          <div class="layer-actions">
+            <div class="layer-action-pair">
+              <button id="frontBtn" type="button">Front</button>
+              <button id="backBtn" type="button">Back</button>
+            </div>
+            <div class="layer-action-pair">
+              <button id="upBtn" type="button">Up</button>
+              <button id="downBtn" type="button">Down</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Export</h2>
+          </div>
+          <label class="field full">
+            Scope
+            <select id="exportScope" class="select">
+              <option value="canvas">Whole canvas</option>
+              <option value="selection">Selected object</option>
+              <option value="content">Crop to content</option>
+            </select>
+          </label>
+          <label class="field fluid">
+            <span>DPI</span>
+            <input id="exportDpi" type="range" min="72" max="1200" step="1" value="300">
+            <input id="exportDpiNumber" class="fluid-number" type="number" min="72" max="1200" step="10" value="300" aria-label="Export DPI">
+          </label>
+        </section>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span id="activeToolStatus">Tool: Select</span>
+      <span id="selectionStatus">No selection</span>
+    </footer>
+  </div>
+
+  <script src="src/app.js?v=20260609_filename"></script>
+</body>
+</html>

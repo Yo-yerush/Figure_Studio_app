@@ -5,14 +5,14 @@ Browser-native scientific figure editor for combining, arranging, and fine-tunin
 Author: Yonatan Yerushalmy  
 Plant's metabolism and molecular genetic lab, Prof. Rachel Amir group
 
-Repository: https://github.com/Yo-yerush/Figure_Studio_app
+Use the web app directly at: https://yo-yerush.github.io/Figure_Studio_app/
 
 ## Run
 
 Double-click:
 
 ```
-Figure_Editor.html
+index.html
 ```
 
 ## Features
@@ -44,5 +44,3 @@ PDF uploads ask for approval before conversion. Approved PDFs are converted in t
 Some SVGs export text as paths. Those labels are no longer real text and cannot be edited as text unless the source figure is re-exported with text preserved.
 
 OCR text recovery uses Tesseract.js from a CDN when the Recognize text button is first pressed, so it needs internet access for the initial OCR engine/language download. OCR results should be reviewed before replacing the original path shapes.
-
-Co-authored-by: Codex (AI assistant) [codex-bot@noreply.example.com](mailto:codex-bot@noreply.example.com)
