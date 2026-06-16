@@ -394,7 +394,8 @@ button:disabled {
 
 .panel-resize-handle:hover::after,
 .panel-resize-handle:focus-visible::after {
-  background: var(--line-strong);
+  /* background: var(--line-strong); */
+  background: none;
   opacity: 1;
 }
 
@@ -625,6 +626,38 @@ body.resizing-panel {
 .file-meta {
   color: var(--muted);
   font-size: 12px;
+}
+
+.resource-panel {
+  display: grid;
+  gap: 7px;
+}
+
+.resource-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.resource-link {
+  display: block;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--control);
+  color: var(--accent-2);
+  padding: 7px 8px;
+  text-decoration: none;
+  font-size: 11.5px;
+  font-weight: 800;
+}
+
+.resource-link:hover,
+.resource-link:focus-visible {
+  border-color: var(--accent);
+  background: var(--control-hover);
+  outline: none;
 }
 
 .field {
