@@ -40,6 +40,15 @@ const els = {
   rightResizeHandle: document.getElementById('rightResizeHandle'),
   fileInput: document.getElementById('fileInput'),
   fileList: document.getElementById('fileList'),
+  healthIconSearch: document.getElementById('healthIconSearch'),
+  healthIconSearchBtn: document.getElementById('healthIconSearchBtn'),
+  healthIconStatus: document.getElementById('healthIconStatus'),
+  healthIconResults: document.getElementById('healthIconResults'),
+  bioIconSearch: document.getElementById('bioIconSearch'),
+  bioIconSearchBtn: document.getElementById('bioIconSearchBtn'),
+  bioIconCreditsBtn: document.getElementById('bioIconCreditsBtn'),
+  bioIconStatus: document.getElementById('bioIconStatus'),
+  bioIconResults: document.getElementById('bioIconResults'),
   svg: document.getElementById('compositionSvg'),
   content: document.getElementById('contentLayer'),
   background: document.getElementById('canvasBackground'),
@@ -152,8 +161,20 @@ const PDFJS_CDN = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.mi
 const PDFJS_WORKER_CDN = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/build/pdf.worker.min.js';
 const PDFJS_CMAP_CDN = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/cmaps/';
 const PDFJS_STANDARD_FONT_CDN = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@2.16.105/standard_fonts/';
+const HEALTH_ICONS_SEARCH_API = 'https://api.iconify.design/search';
+const HEALTH_ICONS_PREFIX = 'healthicons';
+const HEALTH_ICON_DEFAULT_FILL = '#e0e0e0';
+const HEALTH_ICON_DEFAULT_STROKE = '#474747';
+const HEALTH_ICON_DEFAULT_STROKE_WIDTH = 0.7;
+const HEALTH_ICON_DEFAULT_WIDTH = 100;
+const BIOICONS_ICONS_JSON = 'https://raw.githubusercontent.com/duerrsimon/bioicons/main/static/icons/icons.json';
+const BIOICONS_AUTHORS_JSON = 'https://raw.githubusercontent.com/duerrsimon/bioicons/main/static/icons/authors.json';
+const BIOICONS_RAW_BASE = 'https://raw.githubusercontent.com/duerrsimon/bioicons/main/static/icons';
+const BIOICONS_GITHUB_BASE = 'https://github.com/duerrsimon/bioicons/blob/main/static/icons';
+const BIOICON_DEFAULT_WIDTH = 100;
 
 let pdfJsPromise = null;
+let bioIconsPromise = null;
 
 const SHAPE_TOOLS = ['rect', 'ellipse', 'line', 'arrow', 'triangle', 'diamond', 'star', 'hexagon', 'plus', 'bracket', 'scaleBar', 'addText'];
 
@@ -277,15 +298,17 @@ function styleOf(el) {
   const textTarget = textTargetsFor(el)[0];
   const textCs = textTarget ? getComputedStyle(textTarget) : cs;
   const tag = el.tagName.toLowerCase();
+  const paintTarget = paintStyleTargetFor(el);
+  const paintCs = paintTarget ? getComputedStyle(paintTarget) : cs;
   let pointSize = null;
   if (tag === 'circle') pointSize = numberFrom(el.getAttribute('r'));
   if (tag === 'ellipse') pointSize = numberFrom(el.getAttribute('rx')) || numberFrom(el.getAttribute('ry'));
   return {
-    fill: firstPaint(el.getAttribute('fill'), el.style.fill, cs.getPropertyValue('fill')),
-    stroke: firstPaint(el.getAttribute('stroke'), el.style.stroke, cs.getPropertyValue('stroke')),
-    lineWidth: numberFrom(el.getAttribute('stroke-width') || el.style.strokeWidth || cs.getPropertyValue('stroke-width')),
-    dash: el.getAttribute('stroke-dasharray') || el.style.strokeDasharray || 'solid',
-    arrowhead: el.getAttribute('marker-end') ? 'end' : 'none',
+    fill: firstPaint(paintTarget?.getAttribute('fill'), paintTarget?.style?.fill, paintCs.getPropertyValue('fill'), el.getAttribute('fill'), el.style.fill, cs.getPropertyValue('fill')),
+    stroke: firstPaint(paintTarget?.getAttribute('stroke'), paintTarget?.style?.stroke, paintCs.getPropertyValue('stroke'), el.getAttribute('stroke'), el.style.stroke, cs.getPropertyValue('stroke')),
+    lineWidth: numberFrom(paintTarget?.getAttribute('stroke-width') || paintTarget?.style?.strokeWidth || paintCs.getPropertyValue('stroke-width') || el.getAttribute('stroke-width') || el.style.strokeWidth || cs.getPropertyValue('stroke-width')),
+    dash: paintTarget?.getAttribute('stroke-dasharray') || paintTarget?.style?.strokeDasharray || el.getAttribute('stroke-dasharray') || el.style.strokeDasharray || 'solid',
+    arrowhead: (paintTarget?.getAttribute('marker-end') || el.getAttribute('marker-end')) ? 'end' : 'none',
     opacity: numberFrom(el.getAttribute('opacity') || el.style.opacity || cs.getPropertyValue('opacity')),
     textSize: textTarget ? numberFrom(textTarget.getAttribute('font-size') || textTarget.style.fontSize || textCs.getPropertyValue('font-size')) : null,
     fontFamily: textTarget ? textTarget.getAttribute('font-family') || textTarget.style.fontFamily || textCs.getPropertyValue('font-family') || 'Arial' : 'Arial',
@@ -294,6 +317,23 @@ function styleOf(el) {
     pointSize,
     text: textTarget ? textTarget.textContent : ''
   };
+}
+
+function paintableDescendants(el) {
+  if (!el?.querySelectorAll) return [];
+  return Array.from(el.querySelectorAll('path, rect, circle, ellipse, polygon, polyline, line, text, tspan, use'))
+    .filter(node => node.closest('#contentLayer') && !node.closest('defs, clipPath, mask, pattern, symbol'));
+}
+
+function paintStyleTargetFor(el) {
+  if (!el) return null;
+  if (!el.classList?.contains('figure-object')) return el;
+  const targets = paintableDescendants(el);
+  return targets.find(target => hasPaint(target, 'fill') || hasPaint(target, 'stroke')) || targets[0] || el;
+}
+
+function isHealthIcon(el) {
+  return Boolean(el?.closest?.('[data-icon-id^="healthicons:"]'));
 }
 
 function hasPaint(el, prop) {
@@ -321,13 +361,25 @@ function capabilitiesFor(elements) {
     const tag = el.tagName.toLowerCase();
     const kind = elementKind(el);
     const textTargets = textTargetsFor(el);
+    const paintTargets = el.classList?.contains('figure-object') ? paintableDescendants(el) : [el];
+    const hasPaintableShapes = paintTargets.some(target => ['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line', 'text', 'tspan', 'use'].includes(target.tagName.toLowerCase()));
+    const hasLineTargets = paintTargets.some(target => {
+      const targetTag = target.tagName.toLowerCase();
+      return ['line', 'polyline'].includes(targetTag) ||
+        (targetTag === 'path' && hasPaint(target, 'stroke') && !hasPaint(target, 'fill')) ||
+        hasPaint(target, 'stroke');
+    });
+    const hasFillTargets = paintTargets.some(target => {
+      const targetTag = target.tagName.toLowerCase();
+      return ['circle', 'ellipse', 'rect', 'path', 'polygon', 'text', 'tspan', 'use'].includes(targetTag) || hasPaint(target, 'fill');
+    });
     textTargetCount += textTargets.length;
     caps.point = caps.point || kind === 'Points';
-    caps.line = caps.line || kind === 'Lines' || ['circle', 'ellipse', 'rect', 'polygon'].includes(tag) || hasPaint(el, 'stroke');
-    caps.fill = caps.fill || ['Points', 'Filled shapes', 'Text'].includes(kind) || hasPaint(el, 'fill');
+    caps.line = caps.line || isHealthIcon(el) || hasLineTargets || kind === 'Lines' || ['circle', 'ellipse', 'rect', 'polygon'].includes(tag) || hasPaint(el, 'stroke');
+    caps.fill = caps.fill || isHealthIcon(el) || hasFillTargets || ['Points', 'Filled shapes', 'Text'].includes(kind) || hasPaint(el, 'fill');
     caps.text = caps.text || textTargets.length > 0;
     caps.font = caps.font || textTargets.length > 0;
-    caps.opacity = true;
+    caps.opacity = caps.opacity || hasPaintableShapes || true;
   });
   caps.textContent = elements.length === 1 && textTargetCount === 1;
   return caps;
@@ -1381,6 +1433,7 @@ function applyStyle(style) {
 function applyStyleToElement(el, style) {
   const tag = el.tagName.toLowerCase();
   const textTargets = textTargetsFor(el);
+  const childPaintTargets = paintTargetsForStyle(el, style);
   if (style.text !== undefined && textTargets.length === 1) textTargets[0].textContent = style.text;
   if (style.textSize !== undefined) {
     textTargets.forEach(target => {
@@ -1413,6 +1466,39 @@ function applyStyleToElement(el, style) {
       el.setAttribute('ry', style.pointSize);
     }
   }
+  if (childPaintTargets.length) {
+    childPaintTargets.forEach(target => applyPaintStyleToElement(target, style, el));
+  } else {
+    applyPaintStyleToElement(el, style, el);
+  }
+  if (style.opacity !== undefined) {
+    el.setAttribute('opacity', style.opacity);
+    el.style.opacity = style.opacity;
+  }
+}
+
+function paintTargetsForStyle(el, style) {
+  if (!el.classList?.contains('figure-object')) return [];
+  if (!('fill' in style || 'stroke' in style || 'lineWidth' in style || 'dash' in style || 'arrowhead' in style)) return [];
+  const targets = paintableDescendants(el);
+  if (!targets.length) return [];
+  return targets.filter(target => shouldApplyPaintStyleToTarget(target, style, el));
+}
+
+function shouldApplyPaintStyleToTarget(target, style, root) {
+  const tag = target.tagName.toLowerCase();
+  if ('fill' in style) {
+    if (['line', 'polyline'].includes(tag)) return false;
+    const ownFill = target.getAttribute('fill');
+    return isHealthIcon(root) || ownFill === null || ownFill !== 'none' || hasPaint(target, 'fill');
+  }
+  if ('stroke' in style || 'lineWidth' in style || 'dash' in style || 'arrowhead' in style) {
+    return isHealthIcon(root) || ['line', 'polyline', 'path', 'rect', 'circle', 'ellipse', 'polygon'].includes(tag) || hasPaint(target, 'stroke');
+  }
+  return false;
+}
+
+function applyPaintStyleToElement(el, style, root = el) {
   if (style.lineWidth !== undefined) {
     el.setAttribute('stroke-width', style.lineWidth);
     el.style.strokeWidth = style.lineWidth;
@@ -1433,7 +1519,7 @@ function applyStyleToElement(el, style) {
   if (style.arrowhead !== undefined) {
     if (style.arrowhead === 'end') {
       ensureArrowMarker();
-      el.setAttribute('marker-end', 'url(#figureEditorArrow)');
+      if (!isHealthIcon(root)) el.setAttribute('marker-end', 'url(#figureEditorArrow)');
     } else {
       el.removeAttribute('marker-end');
     }
@@ -1441,10 +1527,6 @@ function applyStyleToElement(el, style) {
   if (style.fill !== undefined) {
     el.setAttribute('fill', style.fill);
     el.style.fill = style.fill;
-  }
-  if (style.opacity !== undefined) {
-    el.setAttribute('opacity', style.opacity);
-    el.style.opacity = style.opacity;
   }
 }
 
@@ -1818,20 +1900,36 @@ function errorMessage(error) {
 
 async function importSvgFile(file, item) {
   const text = await file.text();
+  return importSvgText(text, item);
+}
+
+function importSvgText(text, item, metadata = {}) {
   const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
   const source = doc.documentElement;
-  if (!source || source.tagName.toLowerCase() !== 'svg') return;
+  const parseError = doc.querySelector('parsererror');
+  if (parseError || !source || source.tagName.toLowerCase() !== 'svg') {
+    throw new Error('The downloaded icon is not valid SVG.');
+  }
   source.querySelectorAll('script, foreignObject').forEach(node => node.remove());
   namespaceSvgIds(source, item.id);
 
   const box = svgBox(source);
-  const scale = Math.min(1, 520 / Math.max(box.width, box.height));
+  const scale = metadata.icon_id?.startsWith('healthicons:')
+    ? HEALTH_ICON_DEFAULT_WIDTH / Math.max(box.width || HEALTH_ICON_DEFAULT_WIDTH, 1)
+    : metadata.source === 'BioIcons'
+      ? BIOICON_DEFAULT_WIDTH / Math.max(box.width || BIOICON_DEFAULT_WIDTH, 1)
+    : Math.min(1, 520 / Math.max(box.width, box.height));
   const p = nextPlacement(box.width * scale, box.height * scale);
   const wrapper = createSvgElement('g', {
     class: 'figure-object',
     transform: `translate(${p.x} ${p.y}) scale(${scale})`,
     'data-file-id': item.id,
     'data-label': item.name
+  });
+  Object.entries(metadata).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      wrapper.setAttribute(`data-${String(key).replace(/_/g, '-')}`, String(value));
+    }
   });
   assignId(wrapper);
 
@@ -1847,6 +1945,7 @@ async function importSvgFile(file, item) {
   wrapper.appendChild(nested);
   els.content.appendChild(wrapper);
   assignIds();
+  return wrapper;
 }
 
 async function loadPdfJs() {
@@ -2175,6 +2274,324 @@ function renderFileList() {
     });
     els.fileList.appendChild(button);
   });
+}
+
+function setHealthIconStatus(message, stateName = '') {
+  if (!els.healthIconStatus) return;
+  els.healthIconStatus.textContent = message;
+  els.healthIconStatus.dataset.state = stateName;
+}
+
+function setBioIconStatus(message, stateName = '') {
+  if (!els.bioIconStatus) return;
+  els.bioIconStatus.textContent = message;
+  els.bioIconStatus.dataset.state = stateName;
+}
+
+function healthIconSvgUrl(iconName) {
+  return `https://api.iconify.design/${HEALTH_ICONS_PREFIX}/${encodeURIComponent(normalizeHealthIconName(iconName))}.svg?height=none`;
+}
+
+function normalizeHealthIconName(iconName) {
+  return String(iconName || '').replace(/^healthicons:/, '').trim();
+}
+
+async function searchHealthIcons() {
+  const query = els.healthIconSearch?.value.trim() || '';
+  if (!query) {
+    setHealthIconStatus('Type a search term first.', 'error');
+    return;
+  }
+  if (!els.healthIconResults) return;
+
+  els.healthIconSearchBtn.disabled = true;
+  els.healthIconResults.innerHTML = '';
+  setHealthIconStatus('Searching Health Icons...', 'loading');
+
+  try {
+    const url = `${HEALTH_ICONS_SEARCH_API}?query=${encodeURIComponent(query)}&prefix=${HEALTH_ICONS_PREFIX}&limit=50`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Iconify search failed (${response.status})`);
+    const data = await response.json();
+    const icons = Array.isArray(data.icons) ? data.icons.map(normalizeHealthIconName).filter(Boolean) : [];
+    renderHealthIconResults(icons);
+    setHealthIconStatus(icons.length ? `${icons.length} icons found. Click an icon to insert it.` : 'No Health Icons found.', icons.length ? '' : 'error');
+  } catch (error) {
+    console.error(error);
+    setHealthIconStatus(`Search failed: ${errorMessage(error)}`, 'error');
+  } finally {
+    els.healthIconSearchBtn.disabled = false;
+  }
+}
+
+function renderHealthIconResults(icons) {
+  if (!els.healthIconResults) return;
+  els.healthIconResults.innerHTML = '';
+  icons.forEach(iconName => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'health-icon-result';
+    button.title = iconName;
+    button.setAttribute('aria-label', `Insert ${iconName}`);
+
+    const img = document.createElement('img');
+    img.src = healthIconSvgUrl(iconName);
+    img.alt = '';
+    img.loading = 'lazy';
+
+    const label = document.createElement('span');
+    label.textContent = iconName;
+
+    button.append(img, label);
+    button.addEventListener('click', () => insertHealthIcon(iconName));
+    els.healthIconResults.appendChild(button);
+  });
+}
+
+async function insertHealthIcon(iconName) {
+  const name = normalizeHealthIconName(iconName);
+  if (!name) return;
+  setHealthIconStatus(`Loading ${name}...`, 'loading');
+
+  try {
+    const response = await fetch(healthIconSvgUrl(name));
+    if (!response.ok) throw new Error(`Icon SVG fetch failed (${response.status})`);
+    const svgText = await response.text();
+    const id = `file-${state.nextFileId++}`;
+    const item = {
+      id,
+      name: `Health Icons - ${name}`,
+      kind: 'icon',
+      url: '',
+      metadata: {
+        source: 'Health Icons',
+        library: 'Iconify / Health Icons',
+        license: 'CC0',
+        icon_id: `healthicons:${name}`
+      }
+    };
+    state.files.push(item);
+    let wrapper;
+    try {
+      wrapper = importSvgText(svgText, item, item.metadata);
+    } catch (error) {
+      state.files = state.files.filter(file => file !== item);
+      throw error;
+    }
+    applyStyleToElement(wrapper, { fill: HEALTH_ICON_DEFAULT_FILL });
+    applyStyleToElement(wrapper, {
+      stroke: HEALTH_ICON_DEFAULT_STROKE,
+      lineWidth: HEALTH_ICON_DEFAULT_STROKE_WIDTH
+    });
+    selectElements([wrapper]);
+    commitHistory();
+    renderFileList();
+    updateGroups();
+    renderSelection();
+    setHealthIconStatus(`Inserted ${name}.`, '');
+  } catch (error) {
+    console.error(error);
+    setHealthIconStatus(`Insert failed: ${errorMessage(error)}`, 'error');
+  }
+}
+
+function bioIconPath(icon) {
+  return [
+    icon.license,
+    icon.category,
+    icon.author,
+    `${icon.name}.svg`
+  ].map(part => encodeURIComponent(String(part || ''))).join('/');
+}
+
+function bioIconSvgUrl(icon) {
+  return `${BIOICONS_RAW_BASE}/${bioIconPath(icon)}`;
+}
+
+function bioIconSourceUrl(icon) {
+  return `${BIOICONS_GITHUB_BASE}/${bioIconPath(icon)}`;
+}
+
+function bioIconAttributionRequired(license) {
+  return String(license || '').toLowerCase() !== 'cc-0';
+}
+
+function bioIconSearchText(icon) {
+  return [icon.name, icon.author, icon.category, icon.license].join(' ').toLowerCase();
+}
+
+async function loadBioIcons() {
+  if (!bioIconsPromise) {
+    bioIconsPromise = Promise.all([
+      fetch(BIOICONS_ICONS_JSON).then(response => {
+        if (!response.ok) throw new Error(`BioIcons metadata fetch failed (${response.status})`);
+        return response.json();
+      }),
+      fetch(BIOICONS_AUTHORS_JSON).then(response => {
+        if (!response.ok) throw new Error(`BioIcons authors fetch failed (${response.status})`);
+        return response.json();
+      }).catch(error => {
+        console.warn('BioIcons author URL metadata unavailable.', error);
+        return {};
+      })
+    ]).then(([icons, authors]) => {
+      if (!Array.isArray(icons)) throw new Error('BioIcons metadata response was not a list.');
+      return icons.map(icon => ({
+        name: String(icon.name || ''),
+        category: String(icon.category || ''),
+        license: String(icon.license || ''),
+        author: String(icon.author || ''),
+        authorUrl: authors?.[icon.author] || ''
+      })).filter(icon => icon.name && icon.license && icon.category && icon.author);
+    });
+  }
+  return bioIconsPromise;
+}
+
+async function searchBioIcons() {
+  const query = els.bioIconSearch?.value.trim().toLowerCase() || '';
+  if (!query) {
+    setBioIconStatus('Type a search term first.', 'error');
+    return;
+  }
+  if (!els.bioIconResults) return;
+
+  els.bioIconSearchBtn.disabled = true;
+  els.bioIconResults.innerHTML = '';
+  setBioIconStatus('Loading BioIcons metadata...', 'loading');
+
+  try {
+    const icons = await loadBioIcons();
+    const matches = icons
+      .filter(icon => bioIconSearchText(icon).includes(query))
+      .slice(0, 50);
+    renderBioIconResults(matches);
+    setBioIconStatus(matches.length ? `${matches.length} icons found. Click an icon to insert it.` : 'No BioIcons found.', matches.length ? '' : 'error');
+  } catch (error) {
+    console.error(error);
+    setBioIconStatus(`Search failed: ${errorMessage(error)}`, 'error');
+  } finally {
+    els.bioIconSearchBtn.disabled = false;
+  }
+}
+
+function renderBioIconResults(icons) {
+  if (!els.bioIconResults) return;
+  els.bioIconResults.innerHTML = '';
+  icons.forEach(icon => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'health-icon-result bio-icon-result';
+    button.title = `${icon.name} - ${icon.author} - ${icon.license}`;
+    button.setAttribute('aria-label', `Insert ${icon.name}`);
+
+    const img = document.createElement('img');
+    img.src = bioIconSvgUrl(icon);
+    img.alt = '';
+    img.loading = 'lazy';
+
+    const label = document.createElement('span');
+    label.textContent = icon.name;
+
+    button.append(img, label);
+    button.addEventListener('click', () => insertBioIcon(icon));
+    els.bioIconResults.appendChild(button);
+  });
+}
+
+async function insertBioIcon(icon) {
+  setBioIconStatus(`Loading ${icon.name}...`, 'loading');
+  try {
+    const svgUrl = bioIconSvgUrl(icon);
+    const sourceUrl = bioIconSourceUrl(icon);
+    const response = await fetch(svgUrl);
+    if (!response.ok) throw new Error(`BioIcons SVG fetch failed (${response.status})`);
+    const svgText = await response.text();
+    const metadata = {
+      source: 'BioIcons',
+      library: 'BioIcons',
+      icon_name: icon.name,
+      author: icon.author,
+      license: icon.license,
+      source_url: sourceUrl,
+      svg_url: svgUrl,
+      author_url: icon.authorUrl || '',
+      attribution_required: String(bioIconAttributionRequired(icon.license))
+    };
+    const id = `file-${state.nextFileId++}`;
+    const item = {
+      id,
+      name: `BioIcons - ${icon.name}`,
+      kind: 'bioicon',
+      url: '',
+      metadata
+    };
+    state.files.push(item);
+    let wrapper;
+    try {
+      wrapper = importSvgText(svgText, item, metadata);
+    } catch (error) {
+      state.files = state.files.filter(file => file !== item);
+      throw error;
+    }
+    wrapper.setAttribute('data-bioicon-metadata', JSON.stringify({
+      iconName: icon.name,
+      author: icon.author,
+      license: icon.license,
+      sourceUrl,
+      svgUrl,
+      attributionRequired: bioIconAttributionRequired(icon.license)
+    }));
+    selectElements([wrapper]);
+    commitHistory();
+    renderFileList();
+    updateGroups();
+    renderSelection();
+    setBioIconStatus(`Inserted ${icon.name}.`, '');
+  } catch (error) {
+    console.error(error);
+    setBioIconStatus(`Insert failed: ${errorMessage(error)}`, 'error');
+  }
+}
+
+function usedBioIconCredits() {
+  const rows = [];
+  const seen = new Set();
+  els.content.querySelectorAll('[data-source="BioIcons"][data-bioicon-metadata], [data-source="BioIcons"][data-icon-name]').forEach(node => {
+    let meta = {};
+    try {
+      meta = JSON.parse(node.getAttribute('data-bioicon-metadata') || '{}');
+    } catch (error) {}
+    const iconName = meta.iconName || node.getAttribute('data-icon-name') || node.getAttribute('data-label') || 'Unknown icon';
+    const author = meta.author || node.getAttribute('data-author') || 'Unknown author';
+    const license = meta.license || node.getAttribute('data-license') || 'Unknown license';
+    const sourceUrl = meta.sourceUrl || node.getAttribute('data-source-url') || '';
+    const key = [iconName, author, license, sourceUrl].join('|');
+    if (seen.has(key)) return;
+    seen.add(key);
+    rows.push({ iconName, author, license, sourceUrl });
+  });
+  return rows;
+}
+
+function exportBioIconCredits() {
+  const rows = usedBioIconCredits();
+  if (!rows.length) {
+    setBioIconStatus('No BioIcons are currently used in the figure.', 'error');
+    return;
+  }
+  const lines = [
+    'BioIcons credits',
+    '',
+    ...rows.map(row => [
+      `Icon: ${row.iconName}`,
+      `Author: ${row.author}`,
+      `License: ${row.license}`,
+      `Source: ${row.sourceUrl || 'BioIcons'}`
+    ].join('\n'))
+  ];
+  downloadText(`${exportBaseName()}_bioicons_credits.txt`, lines.join('\n\n'), 'text/plain');
+  setBioIconStatus(`Exported credits for ${rows.length} BioIcons.`, '');
 }
 
 function addText(point = { x: 120, y: 120 }) {
@@ -3538,9 +3955,26 @@ els.rightPanelToggle.addEventListener('click', () => {
 els.leftResizeHandle.addEventListener('pointerdown', event => startPanelResize('left', event));
 els.rightResizeHandle.addEventListener('pointerdown', event => startPanelResize('right', event));
 els.fileInput.addEventListener('change', event => addFiles(event.target.files));
+els.healthIconSearchBtn?.addEventListener('click', searchHealthIcons);
+els.healthIconSearch?.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    searchHealthIcons();
+  }
+});
+els.bioIconSearchBtn?.addEventListener('click', searchBioIcons);
+els.bioIconSearch?.addEventListener('keydown', event => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    searchBioIcons();
+  }
+});
+els.bioIconCreditsBtn?.addEventListener('click', exportBioIconCredits);
 els.clearBtn.addEventListener('click', () => {
   els.content.innerHTML = '';
-  state.files.forEach(file => URL.revokeObjectURL(file.url));
+  state.files.forEach(file => {
+    if (file.url) URL.revokeObjectURL(file.url);
+  });
   state.files = [];
   clearSelection();
   commitHistory();

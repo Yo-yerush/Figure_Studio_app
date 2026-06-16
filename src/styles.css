@@ -414,7 +414,8 @@ body.resizing-panel {
 
 .left-panel,
 .right-panel {
-  max-height: calc(100vh - 126px);
+  /* max-height: calc(100vh - 126px); */
+  max-height: none;
   overflow: auto;
   padding-top: 28px;
   padding-right: 2px;
@@ -542,6 +543,11 @@ body.resizing-panel {
   background: #17171a;
 }
 
+.left-panel .primary-left-panel {
+  background: #0f0f12;
+  border-color: #27272d;
+}
+
 .right-panel .panel:nth-of-type(odd) {
   background: #17171a;
 }
@@ -658,6 +664,90 @@ body.resizing-panel {
   border-color: var(--accent);
   background: var(--control-hover);
   outline: none;
+}
+
+.health-icons-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.health-icons-search {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.health-icons-search input {
+  min-width: 0;
+  min-height: 28px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--control);
+  color: var(--text);
+  padding: 4px 7px;
+}
+
+.health-icon-status {
+  min-height: 18px;
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+
+.health-icon-status[data-state="loading"] {
+  color: var(--accent-2);
+}
+
+.health-icon-status[data-state="error"] {
+  color: var(--danger);
+}
+
+.health-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 230px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.health-icon-result {
+  display: grid;
+  place-items: center;
+  gap: 4px;
+  min-height: 70px;
+  padding: 6px 4px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+}
+
+.health-icon-result:hover,
+.health-icon-result:focus-visible {
+  border-color: var(--accent);
+  background: var(--control-hover);
+}
+
+.health-icon-result img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: invert(1);
+}
+
+.bio-icon-result img {
+  filter: none;
+}
+
+.health-icon-result span {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 9.5px;
+  line-height: 1.2;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .field {

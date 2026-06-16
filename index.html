@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Figure Studio</title>
-  <link rel="stylesheet" href="src/styles.css?v=20260609_filename">
+  <link rel="stylesheet" href="src/styles.css?v=20260617_darkpanels">
 </head>
 <body>
   <div class="app-shell">
@@ -80,7 +80,7 @@
       <aside id="leftPanel" class="left-panel">
         <button id="leftPanelToggle" type="button" class="panel-toggle" title="Collapse left panels" aria-label="Collapse left panels">&lsaquo;</button>
         <div id="leftResizeHandle" class="panel-resize-handle left-resize" title="Drag to resize left panel"></div>
-        <section class="panel">
+        <section class="panel primary-left-panel">
           <div class="panel-head">
             <h2>Inputs</h2>
             <button id="clearBtn" type="button" class="text-button">Clear</button>
@@ -88,7 +88,7 @@
           <div id="fileList" class="file-list"></div>
         </section>
 
-        <section class="panel">
+        <section class="panel primary-left-panel">
           <div class="panel-head">
             <h2>Canvas</h2>
           </div>
@@ -126,6 +126,32 @@
             <button id="resizeSelectionBtn" type="button">Canvas to selection</button>
           </div>
         </section>
+        
+        <hr style="border: none; border-top: 0.75px solid #bcf9ff; margin: 1em 0;">
+        <section class="panel bio-icons-panel">
+          <div class="panel-head">
+            <h2>BioIcons</h2>
+            <button id="bioIconCreditsBtn" type="button" class="text-button">Export credits</button>
+          </div>
+          <div class="health-icons-search">
+            <input id="bioIconSearch" type="search" placeholder="Search BioIcons" aria-label="Search BioIcons">
+            <button id="bioIconSearchBtn" type="button">Search</button>
+          </div>
+          <div id="bioIconStatus" class="health-icon-status">Search BioIcons by name, author, category, or license.</div>
+          <div id="bioIconResults" class="health-icon-grid" aria-label="BioIcons results"></div>
+        </section>
+
+        <section class="panel health-icons-panel">
+          <div class="panel-head">
+            <h2>Health Icons</h2>
+          </div>
+          <div class="health-icons-search">
+            <input id="healthIconSearch" type="search" placeholder="Search icons" aria-label="Search Health Icons">
+            <button id="healthIconSearchBtn" type="button">Search</button>
+          </div>
+          <div id="healthIconStatus" class="health-icon-status">Search Iconify Health Icons.</div>
+          <div id="healthIconResults" class="health-icon-grid" aria-label="Health Icons results"></div>
+        </section>
 
         <section class="panel resource-panel">
           <div class="panel-head">
@@ -137,7 +163,6 @@
           <a class="resource-link" href="https://bioart.niaid.nih.gov/discover" target="_blank" rel="noopener">
             bioart.niaid.nih.gov/discover
           </a>
-          <br>
           <p class="resource-text" style="font-size: 0.9em; font-style: italic;">
             Watch the FAQs to citing illustration from NIAID NIH BioArt Source
           </p>
@@ -168,6 +193,8 @@
           <div id="selectionSummary" class="selection-summary">No selection</div>
           <div id="styleControls" class="style-controls"></div>
         </section>
+
+        <hr style="border: none; border-top: 0.75px solid #bcf9ff; margin: 1em 0;">
 
         <section class="panel">
           <div class="panel-head">
@@ -265,6 +292,8 @@
           </div>
         </section>
 
+        <hr style="border: none; border-top: 0.75px solid #bcf9ff; margin: 1em 0;">
+
         <section class="panel">
           <div class="panel-head">
             <h2>Layers</h2>
@@ -284,6 +313,8 @@
           </div>
         </section>
 
+        <hr style="border: none; border-top: 0.75px solid #bcf9ff; margin: 1em 0;">
+        
         <section class="panel">
           <div class="panel-head">
             <h2>Export</h2>
@@ -311,6 +342,6 @@
     </footer>
   </div>
 
-  <script src="src/app.js?v=20260609_filename"></script>
+  <script src="src/app.js?v=20260617_bioicons"></script>
 </body>
 </html>

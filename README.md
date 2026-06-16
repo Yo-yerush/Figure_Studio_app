@@ -32,10 +32,14 @@ index.html
 - Group/ungroup, select same fill/line/font/shape, and select all text/points/lines/bars/shapes/images.
 - Align and distribute selected elements.
 - Canvas presets for scientific figure layouts, crop to content, and canvas to selection.
+- Built-in BioIcons search panel loads SVG icons from the BioIcons GitHub data, inserts them into the canvas, and tracks per-icon author/license/source metadata.
+- Built-in Health Icons search panel uses the Iconify `healthicons` prefix and inserts editable SVG icons with default fill, line color, and line width.
+- BIOART panel links to the NIAID/NIH BioArt image library for additional reference and SVG resources.
 - Dark workspace theme with a prominent bright artboard and separated edit, zoom, and export toolbar groups.
 - Resizable and collapsible left/right side panels for a larger canvas view.
 - Undo/redo, duplicate, delete, drag/drop loading, and keyboard movement.
-- Export final figures as SVG, PNG, JPEG, TIFF, or browser print/save-as-PDF, with export scope and DPI controls.
+- Export final figures as SVG, PNG, JPEG, TIFF, or browser print/save-as-PDF, with custom output filename, export scope, and DPI controls.
+- Export BioIcons credits as a text file listing each BioIcon used in the figure with icon name, author, license, and source.
 
 ## Notes
 
@@ -44,3 +48,9 @@ PDF uploads ask for approval before conversion. Approved PDFs are converted in t
 Some SVGs export text as paths. Those labels are no longer real text and cannot be edited as text unless the source figure is re-exported with text preserved.
 
 OCR text recovery uses Tesseract.js from a CDN when the Recognize text button is first pressed, so it needs internet access for the initial OCR engine/language download. OCR results should be reviewed before replacing the original path shapes.
+
+Health Icons search uses the Iconify API and only searches the `healthicons` prefix. Inserted Health Icons store source metadata and default to 100 px wide, fill `#e0e0e0`, line color `#474747`, and line width `0.7`.
+
+BioIcons search loads `icons.json`, `authors.json`, and SVG files from the BioIcons GitHub repository. BioIcons are not treated as one global license: each inserted icon keeps its own author, license, source URL, SVG URL, and attribution flag. Use the Export credits button in the BioIcons panel before publication to generate an attribution list for BioIcons used in the current figure.
+
+The BIOART panel links to https://bioart.niaid.nih.gov/discover for external scientific image resources. Check the linked library's own FAQ/license guidance before reuse.
